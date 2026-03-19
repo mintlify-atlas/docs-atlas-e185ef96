@@ -1,0 +1,204 @@
+---
+title: Monitoring
+description: Health checks, status endpoints, and logging for phoss SMP.
+---
+
+## Health check endpoints
+
+phoss SMP exposes two HTTP endpoints useful for monitoring and container orchestration:
+
+| Path | Purpose | Enabled by default |
+|------|---------|--------------------|
+| `/ping/` | Liveness probe — returns HTTP 200 when the servlet container is running | Yes |
+| `/smp-status/` | Detailed JSON health/status data | No |
+
+### `/ping/`
+
+The `PingPongServlet` mapped to `/ping/` is always active and returns a minimal HTTP 200 response. Use it as a liveness probe in Docker or Kubernetes health checks:
+
+```bash
+curl -f http://localhost/ping/
+```
+
+### `/smp-status/`
+
+The status endpoint is **disabled by default** for security. Enable it in `application.properties`:
+
+```properties
+smp.status.enabled = true
+```
+
+Once enabled, a GET request returns a JSON object:
+
+```bash
+curl http://localhost/smp-status/
+```
+
+#### Disabling long-running operations
+
+For use as a readiness probe you can request a lightweight response that skips any slow internal checks:
+
+```bash
+curl "http://localhost/smp-status/?disable-long-running=true"
+```
+
+#### Status response fields
+
+When enabled, the response is a flat JSON object. The table below describes the fields emitted by the built-in `SMPStatusProvider` (since v5.4.0):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `build.timestamp` | string | Build timestamp of the running WAR |
+| `startup.datetime` | string (ISO 8601) | Server startup time |
+| `status.datetime` | string (ISO 8601) | Time the status was generated (local TZ) |
+| `status.datetime.utc` | string (ISO 8601) | Time the status was generated (UTC) |
+| `version.smp` | string | phoss SMP version (e.g. `8.1.3`) |
+| `version.java` | string | JVM version in use |
+| `global.debug` | boolean | Whether debug mode is active |
+| `global.production` | boolean | Whether production mode is active |
+| `smp.application` | string | Application title string |
+| `smp.backend` | string | Active backend (`xml`, `sql`, `mongodb`) |
+| `smp.mode` | string | `test` or `production` |
+| `smp.resttype` | string | REST API type (`peppol` or `bdxr`) |
+| `smp.identifiertype` | string | Identifier scheme in use |
+| `smp.id` | string | SML SMP ID |
+| `smp.writable-rest-api.enabled` | boolean | Whether write REST API is enabled |
+| `smp.rest-remote-query-api.enabled` | boolean | Whether the remote query API is enabled |
+| `smp.publicurl` | string | Configured public server URL |
+| `smp.forceroot` | boolean | Whether forceroot is active |
+| `smp.publicurl.mode` | string | Public URL detection mode |
+| `smp.rest.log-exceptions` | boolean | REST exception logging flag |
+| `smp.rest.payload-on-error` | boolean | Whether error responses include payload |
+| `smp.sml.enabled` | boolean | SML integration enabled |
+| `smp.sml.needed` | boolean | SML integration required |
+| `smp.sml.url` | string | SML management service URL (if configured) |
+| `smp.sml.dnszone` | string | SML DNS zone (if configured) |
+| `smp.sml.connection-timeout-ms` | number | SML connection timeout |
+| `smp.sml.request-timeout-ms` | number | SML request timeout |
+| `smp.pd.enabled` | boolean | Peppol Directory integration enabled |
+| `smp.pd.needed` | boolean | Peppol Directory integration required |
+| `smp.pd.auto-update` | boolean | Auto-push to Directory on change |
+| `smp.pd.hostname` | string | Directory host name |
+| `smp.certificate.configuration-valid` | boolean | Whether keystore loaded successfully |
+| `smp.certificate.issuer` | string | Certificate issuer DN |
+| `smp.certificate.subject` | string | Certificate subject DN |
+| `smp.certificate.expired` | boolean | Whether the SMP certificate has expired |
+| `smp.certificate.notbefore` | string (ISO 8601) | Certificate validity start (if `smp.status.showcertificatedates=true`) |
+| `smp.certificate.notafter` | string (ISO 8601) | Certificate expiry date (if `smp.status.showcertificatedates=true`) |
+| `proxy.http.configured` | boolean | HTTP proxy configured |
+| `proxy.https.configured` | boolean | HTTPS proxy configured |
+| `proxy.username.configured` | boolean | Proxy username configured |
+| `csp.enabled` | boolean | Content Security Policy enabled |
+| `csp.reporting.only` | boolean | CSP in report-only mode |
+| `csp.reporting.enabled` | boolean | CSP reporting enabled |
+
+<Note>
+Additional fields may be present if a custom `ISMPStatusProviderExtensionSPI` implementation is registered via the Java `ServiceLoader` mechanism.
+</Note>
+
+#### Example response (enabled)
+
+```json
+{
+  "build.timestamp": "2025-01-15T10:30:00Z",
+  "startup.datetime": "2026-03-19T08:00:00+01:00",
+  "status.datetime": "2026-03-19T09:15:00+01:00",
+  "status.datetime.utc": "2026-03-19T08:15:00Z",
+  "version.smp": "8.1.3",
+  "version.java": "17.0.10",
+  "global.debug": false,
+  "global.production": true,
+  "smp.application": "phoss SMP",
+  "smp.backend": "sql",
+  "smp.mode": "production",
+  "smp.resttype": "peppol",
+  "smp.identifiertype": "peppol",
+  "smp.writable-rest-api.enabled": true,
+  "smp.publicurl": "https://smp.example.org",
+  "smp.certificate.configuration-valid": true,
+  "smp.certificate.expired": false,
+  "csp.enabled": true
+}
+```
+
+#### Response when disabled
+
+If `smp.status.enabled = false` (the default), the endpoint still returns HTTP 200 but with a minimal JSON body:
+
+```json
+{
+  "status.enabled": false
+}
+```
+
+## Logging
+
+### Log4j 2
+
+phoss SMP uses **Log4j 2** with SLF4J as the logging facade. The Log4j configuration file is `log4j2.xml`, bundled in the WAR. Override it for production by placing a `log4j2.xml` on the classpath or specifying its path via the system property:
+
+```bash
+-Dlog4j2.configurationFile=/etc/smp/log4j2.xml
+```
+
+Recommended production log level:
+
+```xml
+<Configuration>
+  <Loggers>
+    <Root level="warn">
+      <AppenderRef ref="FILE"/>
+    </Root>
+    <Logger name="com.helger.phoss.smp" level="info" additivity="false">
+      <AppenderRef ref="FILE"/>
+    </Logger>
+  </Loggers>
+</Configuration>
+```
+
+### Tomcat log files
+
+When deployed on Tomcat, application output goes to the standard Tomcat logs directory (typically `/opt/tomcat/logs/` or `/var/log/tomcat/`):
+
+| File | Contents |
+|------|----------|
+| `catalina.out` | All stdout/stderr from the JVM |
+| `catalina.YYYY-MM-DD.log` | Tomcat internal log, rotated daily |
+| `localhost.YYYY-MM-DD.log` | Per-host log |
+
+### Docker log access
+
+If running via the official Docker image, logs are written to stdout and accessible with:
+
+```bash
+docker logs phoss-smp
+```
+
+Follow logs in real time:
+
+```bash
+docker logs -f phoss-smp
+```
+
+Inside the container, Tomcat rotates `catalina.out` daily:
+
+```
+/usr/local/tomcat/logs/catalina.out.YYYY-MM-DD
+```
+
+## Key metrics to monitor
+
+The following operational indicators are worth tracking in an alerting or observability system:
+
+| Indicator | How to check | Alert condition |
+|-----------|-------------|----------------|
+| SMP process alive | `GET /ping/` | Non-200 response |
+| Certificate validity | `smp.certificate.expired` in `/smp-status/` | `true` |
+| Certificate configuration | `smp.certificate.configuration-valid` in `/smp-status/` | `false` |
+| JVM version | `version.java` in `/smp-status/` | Below Java 17 |
+| Debug mode active | `global.debug` in `/smp-status/` | `true` in production |
+| SML connectivity | SML operations in application log | `ERROR` log entries |
+
+<Tip>
+Set `smp.status.enabled = true` in staging and production, and scrape `/smp-status/` from your monitoring system (Prometheus blackbox exporter, Datadog HTTP check, etc.) to detect certificate expiry before it causes outages.
+</Tip>

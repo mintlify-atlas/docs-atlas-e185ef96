@@ -1,0 +1,187 @@
+---
+title: 'Service groups'
+description: 'Peppol SMP 1.x endpoints for reading, creating, and deleting service groups (participants).'
+---
+
+A service group represents a participant in the Peppol network and is identified by its participant identifier. It acts as a container for service metadata entries.
+
+XML namespace: `http://busdox.org/serviceMetadata/publishing/1.0/`
+
+---
+
+## GET `/{ServiceGroupId}`
+
+Returns the service group for the given participant identifier, including a list of references to the service metadata entries registered for that participant.
+
+**Authentication:** Not required.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded. Example: `iso6523-actorid-upis%3A%3A0088%3A5060210000007`
+</ParamField>
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceGroup xmlns="http://busdox.org/serviceMetadata/publishing/1.0/"
+                  xmlns:id="http://busdox.org/transport/identifiers/1.0/">
+      <ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060210000007</ParticipantIdentifier>
+      <ServiceMetadataReferenceCollection>
+        <ServiceMetadataReference
+          href="https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23urn%3Acen.eu%3Aen16931%3A2017%23compliant%23urn%3Afdc%3Apeppol.eu%3A2017%3Apoacc%3Abilling%3A3.0%3A%3A2.1"/>
+      </ServiceMetadataReferenceCollection>
+    </ServiceGroup>
+    ```
+  </Tab>
+</Tabs>
+
+### Response fields
+
+<ResponseField name="ParticipantIdentifier" type="string">
+  The participant identifier. The `scheme` attribute contains the identifier scheme.
+</ResponseField>
+
+<ResponseField name="ServiceMetadataReferenceCollection" type="object">
+  <Expandable title="ServiceMetadataReferenceCollection">
+    <ResponseField name="ServiceMetadataReference" type="array">
+      One entry per registered document type. The `href` attribute is the full URL to the service metadata for that document type. Entries are only included when the service information has at least one endpoint, or when a redirect is configured.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | `ServiceGroupId` cannot be parsed as a valid participant identifier |
+| `404` | No service group with this identifier exists on this SMP |
+
+---
+
+## PUT `/{ServiceGroupId}`
+
+Creates a new service group or updates an existing one. The participant identifier in the URL must match the identifier in the request body.
+
+**Authentication:** Required. See [Authentication](/api/authentication).
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="Request body">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceGroup xmlns="http://busdox.org/serviceMetadata/publishing/1.0/"
+                  xmlns:id="http://busdox.org/transport/identifiers/1.0/">
+      <ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060210000007</ParticipantIdentifier>
+      <ServiceMetadataReferenceCollection/>
+    </ServiceGroup>
+    ```
+  </Tab>
+  <Tab title="curl example">
+    ```bash
+    curl -X PUT \
+      https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007 \
+      -u admin@helger.com:password \
+      -H "Content-Type: application/xml" \
+      --data-binary @service-group.xml
+    ```
+  </Tab>
+</Tabs>
+
+### Request body fields
+
+<ParamField body="ParticipantIdentifier" type="string" required>
+  Must match the `ServiceGroupId` in the URL path. The `scheme` attribute sets the identifier scheme.
+</ParamField>
+
+<ParamField body="ServiceMetadataReferenceCollection" type="object">
+  Can be empty. The server populates this field on GET responses — any value provided here is ignored on write.
+</ParamField>
+
+### Response
+
+Returns `HTTP 200 OK` with an empty body on success.
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Identifier in URL does not match the identifier in the request body |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+
+<Note>
+If SML integration is enabled (`sml.enabled = true`), creating a new service group also registers the participant in the SML. Deletion removes it.
+</Note>
+
+---
+
+## DELETE `/{ServiceGroupId}`
+
+Deletes the service group and all its associated service metadata and redirects.
+
+**Authentication:** Required. See [Authentication](/api/authentication).
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl -X DELETE \
+      https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007 \
+      -u admin@helger.com:password
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+Returns `HTTP 200 OK` on success.
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | `ServiceGroupId` cannot be parsed as a valid participant identifier |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | No service group with this identifier exists |
+
+---
+
+## GET `/list/{UserId}`
+
+Returns a list of service group references owned by the specified user. Authentication is required and the authenticated user must match the `UserId` in the path.
+
+**Authentication:** Required.
+
+<ParamField path="UserId" type="string" required>
+  The login name (email address) of the SMP user.
+</ParamField>
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl https://smp.example.org/list/admin@helger.com \
+      -u admin@helger.com:password
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceGroupReferenceList xmlns="http://busdox.org/serviceMetadata/publishing/1.0/">
+      <ServiceGroupReference
+        href="https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007"/>
+    </ServiceGroupReferenceList>
+    ```
+  </Tab>
+</Tabs>

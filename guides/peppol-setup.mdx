@@ -1,0 +1,236 @@
+---
+title: 'Peppol network setup'
+description: 'Step-by-step guide to configure phoss SMP for the Peppol network, including certificate enrollment, SML registration, and creating your first service group.'
+---
+
+This guide walks you through setting up phoss SMP as a fully operational Peppol SMP — from obtaining a certificate to verifying your first participant lookup.
+
+<Note>
+Peppol has two environments: **test/pilot** and **production**. Work through this guide in the test environment first. The steps are identical; only the certificate authority, SML endpoint, and truststore differ.
+</Note>
+
+## Prerequisites
+
+- phoss SMP deployed and reachable over HTTPS at a public URL
+- A domain name registered in DNS (required for SML registration)
+- A Peppol SMP ID agreed with your Peppol Authority (e.g. `SMP-MYCOMPANY-001`)
+
+## Step 1: Obtain a Peppol SMP certificate
+
+<Steps>
+  <Step title="Contact your Peppol Authority">
+    Apply for an SMP certificate through your regional [OpenPeppol](https://peppol.org/about/openpeppol/) member authority. The authority issues certificates under the Peppol PKI.
+
+    <Tabs>
+      <Tab title="Test environment">
+        Request a **Peppol Test SMP certificate** (also called AP Test certificate). No production traffic can use this certificate.
+      </Tab>
+      <Tab title="Production environment">
+        Request a **Peppol Production SMP certificate**. You must have completed onboarding and accepted the Peppol Transport Infrastructure Agreement (TIA).
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Convert the certificate to PKCS#12">
+    Peppol Authorities typically deliver a `.p12` or `.pfx` file. If you receive separate certificate and key files, combine them:
+
+    ```bash
+    openssl pkcs12 -export \
+      -in smp-cert.pem \
+      -inkey smp-key.pem \
+      -out smp.p12 \
+      -name "smp keypair" \
+      -passout pass:changeit
+    ```
+  </Step>
+
+  <Step title="Verify the keystore">
+    Confirm the keystore contains exactly one entry:
+
+    ```bash
+    keytool -list -v -keystore smp.p12 -storetype PKCS12 -storepass changeit
+    ```
+
+    <Warning>
+    phoss SMP requires the keystore to contain **exactly one** key entry. The key password and keystore password must match.
+    </Warning>
+  </Step>
+</Steps>
+
+## Step 2: Configure the keystore
+
+Place the keystore file on the server (e.g. `/etc/smp/keystore/smp.p12`) and update `application.properties`:
+
+```properties
+smp.keystore.type         = pkcs12
+smp.keystore.path         = /etc/smp/keystore/smp.p12
+smp.keystore.password     = changeit
+smp.keystore.key.alias    = smp keypair
+smp.keystore.key.password = changeit
+```
+
+Select the correct truststore for your environment:
+
+```properties
+# Test environment
+smp.truststore.path = truststore/2025/smp-test-truststore.p12
+
+# Production environment
+# smp.truststore.path = truststore/2025/smp-prod-truststore.p12
+
+smp.truststore.type     = pkcs12
+smp.truststore.password = peppol
+```
+
+<Info>
+The bundled truststores (from `peppol-commons`) are embedded in the WAR. You can reference them by classpath-relative path as shown above.
+</Info>
+
+## Step 3: Set Peppol identifier and REST mode
+
+```properties
+smp.identifiertype = peppol
+smp.rest.type      = peppol
+```
+
+`smp.identifiertype = peppol` enforces strict Peppol identifier validation (case-insensitive scheme, lowercase value). Use `peppol-lax` only if you need to support legacy identifiers with mixed case.
+
+## Step 4: Configure SML integration
+
+The SML (Service Metadata Locator) is the DNS-based directory that lets Peppol buyers find your SMP. Enable it and set your SMP ID:
+
+```properties
+sml.enabled = true
+sml.smpid   = SMP-MYCOMPANY-001
+```
+
+<Tabs>
+  <Tab title="Test SML">
+    The test SML is `acc.edelivery.tech.ec.europa.eu`. No additional property is needed — phoss SMP uses the test SML by default when operating in test mode.
+  </Tab>
+  <Tab title="Production SML">
+    The production SML is `edelivery.tech.ec.europa.eu`. Ensure `global.production = true` and that your certificate was issued for production.
+  </Tab>
+</Tabs>
+
+<Note>
+SML registration requires outbound HTTPS access from your server to the SML endpoint on port 443.
+</Note>
+
+## Step 5: Set the public URL
+
+phoss SMP must know its own public URL so it can construct correct self-referential links in SMP responses:
+
+```properties
+smp.publicurl = https://smp.mycompany.com
+```
+
+If the server runs behind a reverse proxy:
+
+```properties
+smp.forceroot       = true
+smp.publicurl       = https://smp.mycompany.com
+smp.publicurl.mode  = request   # or x-forwarded-header, forwarded-header
+```
+
+## Step 6: Register with the SML (DNS registration)
+
+<Steps>
+  <Step title="Start the server">
+    Deploy phoss SMP and verify it starts without errors. Check the log for keystore loading messages.
+  </Step>
+
+  <Step title="Open the management UI">
+    Navigate to `https://smp.mycompany.com/secure/` and log in. Default credentials are `admin@helger.com` / `password` — **change the password immediately**.
+  </Step>
+
+  <Step title="Register the SMP in SML">
+    Go to **Administration > SML > Register SMP in SML**. Click **Register**.
+
+    phoss SMP sends a registration request to the SML, which creates a DNS CNAME record pointing `<smpid>.publisher.<sml-domain>` to your server's public URL.
+  </Step>
+
+  <Step title="Verify DNS propagation">
+    ```bash
+    nslookup SMP-MYCOMPANY-001.publisher.acc.edelivery.tech.ec.europa.eu
+    ```
+    The record should resolve within a few minutes.
+  </Step>
+</Steps>
+
+## Step 7: Create your first service group
+
+A service group represents one participant (e.g. a company receiving invoices). Create one via the UI or REST API.
+
+**Via management UI:** Go to **Service Groups > Create** and enter the participant's identifier scheme and value (e.g. scheme `0088`, value `5060000000001`).
+
+**Via REST API:**
+
+```bash
+curl -X PUT \
+  -u admin@helger.com:password \
+  -H 'Content-Type: application/xml' \
+  -d '<ServiceGroup xmlns="http://busdox.org/serviceMetadata/publishing/1.0/"><ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060000000001</ParticipantIdentifier></ServiceGroup>' \
+  https://smp.mycompany.com/iso6523-actorid-upis%3A%3A0088%3A5060000000001
+```
+
+## Step 8: Add service metadata
+
+Service metadata tells Peppol senders which document types a participant accepts and which Access Point endpoint to use.
+
+```bash
+curl -X PUT \
+  -u admin@helger.com:password \
+  -H 'Content-Type: application/xml' \
+  -d @service-metadata.xml \
+  'https://smp.mycompany.com/iso6523-actorid-upis%3A%3A0088%3A5060000000001/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23urn%3Acen.eu%3Aen16931%3A2017%23compliant%23urn%3Afdc%3Apeppol.eu%3A2017%3Apoacc%3Abilling%3A3.0%3A%3A2.1'
+```
+
+<Tip>
+The management UI (Service Groups > select group > Service Metadata) provides a guided form that is easier to use than constructing raw XML.
+</Tip>
+
+## Step 9: Verify with a Peppol lookup
+
+Use the [Peppol Directory](https://directory.peppol.eu) or any SMP client to resolve the participant:
+
+```bash
+# Using curl directly against the SML-derived URL:
+curl https://B-$(echo -n 'iso6523-actorid-upis::0088:5060000000001' | md5sum | cut -d' ' -f1).iso6523-actorid-upis.acc.edelivery.tech.ec.europa.eu/iso6523-actorid-upis%3A%3A0088%3A5060000000001
+```
+
+A successful response contains the `<ServiceGroup>` XML with your document type references.
+
+## Production vs test differences
+
+| Aspect | Test / pilot | Production |
+|--------|-------------|------------|
+| Certificate | Peppol Test SMP cert | Peppol Production SMP cert |
+| Truststore | `smp-test-truststore.p12` | `smp-prod-truststore.p12` |
+| SML endpoint | `acc.edelivery.tech.ec.europa.eu` | `edelivery.tech.ec.europa.eu` |
+| `global.production` | `false` | `true` |
+| Peppol Directory | `test-directory.peppol.eu` | `directory.peppol.eu` |
+
+## Troubleshooting SML registration
+
+<AccordionGroup>
+  <Accordion title="Registration fails with 'certificate not trusted'">
+    The SML validates that your certificate was issued by the Peppol PKI. Make sure you are using the correct certificate for the environment (test vs production) and that it has not expired.
+  </Accordion>
+
+  <Accordion title="DNS record does not appear after registration">
+    SML DNS changes can take up to 5 minutes to propagate. If the record still does not appear after 10 minutes, verify that `sml.smpid` matches the SMP ID registered with your Peppol Authority, and check the phoss SMP log for errors during the registration call.
+  </Accordion>
+
+  <Accordion title="'Connection refused' or timeout reaching SML">
+    Your server needs outbound HTTPS access to the SML. Check firewall rules. You can verify connectivity with:
+
+    ```bash
+    curl -v https://acc.edelivery.tech.ec.europa.eu
+    ```
+  </Accordion>
+
+  <Accordion title="SML registration succeeds but lookups fail">
+    Confirm that `smp.publicurl` resolves correctly from outside your network, and that the URL registered in the SML matches the URL where phoss SMP is actually running.
+  </Accordion>
+</AccordionGroup>

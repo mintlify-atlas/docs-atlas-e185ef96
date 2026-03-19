@@ -1,0 +1,344 @@
+---
+title: 'Troubleshooting'
+description: 'Solutions for common phoss SMP issues including startup failures, REST API errors, SML registration problems, and proxy configuration.'
+---
+
+This page covers the most frequently encountered issues with phoss SMP and their solutions.
+
+## Startup issues
+
+<AccordionGroup>
+  <Accordion title="Server won't start: keystore errors">
+    **Symptoms:** Exception at startup mentioning `keystore`, `certificate`, or `PKCS12`.
+
+    **Causes and fixes:**
+
+    - **File not found:** The path in `smp.keystore.path` is wrong or not readable by the process user. Use an absolute path in production.
+    - **Wrong password:** `smp.keystore.password` and `smp.keystore.key.password` must both be correct and must match each other.
+    - **Wrong alias:** `smp.keystore.key.alias` must exactly match the alias in the keystore. Check with:
+
+      ```bash
+      keytool -list -v -keystore smp.p12 -storetype PKCS12 -storepass yourpassword
+      ```
+
+    - **Multiple entries:** phoss SMP requires exactly one key entry in the keystore. Remove any extra entries.
+    - **Type mismatch:** Set `smp.keystore.type` to match the actual file format: `jks`, `pkcs12`, or `bcfks`.
+  </Accordion>
+
+  <Accordion title="Server won't start: wrong backend config">
+    **Symptoms:** `IllegalStateException: No SMP backend registered with ID 'xyz'` or similar.
+
+    The value of `smp.backend` does not match any registered backend ID. Valid built-in values are `xml`, `sql`, and `mongodb`. Verify the spelling in `application.properties`.
+
+    If you are using a custom backend, ensure the backend JAR is on the classpath and the `META-INF/services/` file contains the correct class name.
+  </Accordion>
+
+  <Accordion title="Server starts but data directory errors appear">
+    **Symptoms:** Warnings or errors about unreadable or unwritable directories.
+
+    Set `webapp.datapath` to an absolute path and ensure the process user has read/write access:
+
+    ```properties
+    webapp.datapath = /var/smp
+    ```
+
+    ```bash
+    sudo chown -R tomcat:tomcat /var/smp
+    sudo chmod 750 /var/smp
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## REST API issues
+
+<AccordionGroup>
+  <Accordion title="404 on REST API calls with encoded slashes">
+    **Symptoms:** `GET` or `PUT` to `/iso6523-actorid-upis%3A%3A0088%3A5060000000001` returns HTTP 400 or 404.
+
+    Peppol and BDXR participant identifiers may contain encoded slashes (`%2F`) in some schemes. Tomcat rejects these by default.
+
+    **Fix for Tomcat 10+:** Add `encodedSolidusHandling="decode"` to the `<Connector>` in `server.xml`:
+
+    ```xml
+    <Connector port="8080" protocol="HTTP/1.1"
+               encodedSolidusHandling="decode"
+               ... />
+    ```
+
+    **Fix for Tomcat < 10:** Set the JVM system property:
+
+    ```bash
+    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication failures: 401 Unauthorized">
+    **Symptoms:** REST API calls return HTTP 401 even with correct credentials.
+
+    - **Bearer token (preferred):** Create a token in the management UI under **Administration > Security > User Tokens**. Use it as:
+
+      ```bash
+      curl -H 'Authorization: Bearer <token>' https://smp.example.org/...
+      ```
+
+    - **Basic auth:** Credentials are `email:password` Base64-encoded. Verify the email address (not just a username) and that the password has not been changed since the credential was created.
+
+    - **Wrong encoding:** Basic auth requires `Base64(email:password)`. Some tools incorrectly encode `username:password` without the domain.
+  </Accordion>
+
+  <Accordion title="REST writes fail with 403 Forbidden">
+    The user account performing writes must have the SMP administrator role. In the management UI, go to **Administration > Security > Users** and confirm the user has the correct role assigned.
+  </Accordion>
+
+  <Accordion title="Malformed XML responses">
+    Verify that `smp.identifiertype` and `smp.rest.type` are consistent:
+
+    | `smp.identifiertype` | `smp.rest.type` |
+    |---------------------|----------------|
+    | `peppol` or `peppol-lax` | `peppol` |
+    | `bdxr1` | `bdxr` |
+    | `bdxr2` | `bdxr` |
+
+    Mixing these values produces responses with incorrect XML namespaces.
+  </Accordion>
+</AccordionGroup>
+
+## SML registration issues
+
+<AccordionGroup>
+  <Accordion title="SML registration fails: certificate not accepted">
+    The SML validates that the SMP certificate was issued by the Peppol PKI. Ensure:
+
+    - You are using the correct certificate for the environment (test vs production)
+    - The certificate has not expired (`keytool -list -v` shows the validity period)
+    - `smp.truststore.path` points to the truststore matching the environment
+  </Accordion>
+
+  <Accordion title="SML registration fails: network error or timeout">
+    phoss SMP needs outbound HTTPS access to the SML endpoint. Check firewall rules and test manually:
+
+    ```bash
+    # Test environment
+    curl -v https://acc.edelivery.tech.ec.europa.eu
+
+    # Production environment
+    curl -v https://edelivery.tech.ec.europa.eu
+    ```
+
+    If you use an HTTP proxy, configure it:
+
+    ```properties
+    https.proxyHost = 10.0.0.10
+    https.proxyPort = 8080
+    ```
+  </Accordion>
+
+  <Accordion title="DNS does not resolve after successful SML registration">
+    DNS propagation can take a few minutes. If the record does not appear after 10 minutes:
+
+    - Verify `sml.smpid` exactly matches the SMP ID registered with your Peppol Authority
+    - Check the phoss SMP log for any warning during the SML call
+    - Query the SML DNS zone directly to bypass local cache:
+
+      ```bash
+      nslookup SMP-MYID.publisher.acc.edelivery.tech.ec.europa.eu 8.8.8.8
+      ```
+  </Accordion>
+</AccordionGroup>
+
+## Docker issues
+
+<AccordionGroup>
+  <Accordion title="Docker volume permissions">
+    **Symptoms:** The container starts but fails to write data files; errors mention `/var/smp` or similar paths.
+
+    The Tomcat process inside the container typically runs as a non-root user. Mount a named volume and ensure the host directory is writable:
+
+    ```bash
+    docker run \
+      -v /host/smp-data:/var/smp \
+      -e JAVA_OPTS="-Dconfig.file=/var/smp/application.properties" \
+      phelger/phoss-smp-xml:latest
+    ```
+
+    Set the owner of the host directory to the UID used inside the container (often UID 1000 or the Tomcat user):
+
+    ```bash
+    sudo chown -R 1000:1000 /host/smp-data
+    ```
+  </Accordion>
+
+  <Accordion title="Container exits immediately on startup">
+    Check the Docker logs for the first error:
+
+    ```bash
+    docker logs <container-id> 2>&1 | head -100
+    ```
+
+    Common causes: missing or unreadable keystore file, wrong `application.properties` path, or missing environment variable.
+  </Accordion>
+</AccordionGroup>
+
+## Database issues (SQL backend)
+
+<AccordionGroup>
+  <Accordion title="Cannot connect to database at startup">
+    Verify the JDBC connection settings in `application.properties`:
+
+    ```properties
+    jdbc.driver   = com.mysql.cj.jdbc.Driver
+    jdbc.url      = jdbc:mysql://localhost:3306/smp?useSSL=false&allowPublicKeyRetrieval=true
+    jdbc.user     = smp
+    jdbc.password = smp
+    target-database = MySQL
+    ```
+
+    Test the connection independently:
+
+    ```bash
+    mysql -h localhost -u smp -psmp smp -e "SELECT 1"
+    ```
+
+    Supported values for `target-database`: `MySQL`, `PostgreSQL`, `Oracle`, `DB2`.
+  </Accordion>
+
+  <Accordion title="Flyway migration errors on startup">
+    phoss SMP uses Flyway for schema migrations. If a migration fails:
+
+    - Check the Flyway error in the log — it includes the migration script name and the SQL error
+    - Ensure the database user has DDL privileges (`CREATE TABLE`, `ALTER TABLE`, etc.)
+    - If you are upgrading from an older version, consult the [Migrations guide](https://github.com/phax/phoss-smp/wiki/Migrations)
+  </Accordion>
+
+  <Accordion title="Connection pool exhausted under load">
+    Tune the DBCP2 connection pool (available from v8.0.11):
+
+    ```properties
+    jdbc.pooling.max-connections              = 20
+    jdbc.pooling.max-wait.millis             = 10000
+    jdbc.pooling.between-evictions-runs.millis = 300000
+    jdbc.pooling.min-evictable-idle.millis   = 1800000
+    ```
+
+    Increase `max-connections` if the server is under sustained load. Restart is required after changing pool settings.
+  </Accordion>
+</AccordionGroup>
+
+## MongoDB issues
+
+<AccordionGroup>
+  <Accordion title="Cannot connect to MongoDB">
+    Verify the MongoDB connection URI in `application.properties` and that the MongoDB instance is reachable:
+
+    ```bash
+    mongosh "mongodb://localhost:27017/smp" --eval "db.runCommand({ ping: 1 })"
+    ```
+
+    If authentication is required, include credentials in the URI:
+
+    ```properties
+    mongodb.uri = mongodb://smpuser:smppass@localhost:27017/smp?authSource=admin
+    ```
+  </Accordion>
+
+  <Accordion title="MongoDB collections not created">
+    phoss SMP creates collections on first write. If collections are missing, the backend may not have been initialised. Check the startup log for backend initialisation messages and ensure `smp.backend = mongodb`.
+  </Accordion>
+</AccordionGroup>
+
+## Reverse proxy issues
+
+<AccordionGroup>
+  <Accordion title="'Page not found' after proxy or context path change">
+    If phoss SMP is deployed under a context path (e.g. `/smp`) but accessed via a proxy at the root, all internal links will be broken.
+
+    Set `smp.forceroot = true` to strip the context path from all generated links:
+
+    ```properties
+    smp.forceroot  = true
+    smp.publicurl  = https://smp.example.org
+    ```
+  </Accordion>
+
+  <Accordion title="Wrong self-referential URLs in SMP responses">
+    SMP responses include the server's own URL. If these are wrong, consuming clients cannot follow links.
+
+    Set `smp.publicurl` to the exact public URL and choose the correct mode for how the proxy forwards host information:
+
+    ```properties
+    smp.publicurl      = https://smp.example.org
+    smp.publicurl.mode = x-forwarded-header   # if proxy sets X-Forwarded-Host
+    # or
+    smp.publicurl.mode = forwarded-header     # if proxy sets RFC 7239 Forwarded
+    # or
+    smp.publicurl.mode = request              # use the incoming request URL directly
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## UI issues
+
+<AccordionGroup>
+  <Accordion title="Content Security Policy (CSP) blocking resources">
+    **Symptoms:** The management UI loads but some elements are broken; browser DevTools console shows CSP errors.
+
+    CSP is enabled by default (`csp.enabled = true`). To diagnose without disabling CSP entirely, enable reporting-only mode temporarily:
+
+    ```properties
+    csp.enabled        = true
+    csp.reporting.only = true
+    ```
+
+    This logs violations without blocking anything. Once you identify the blocked resource, adjust the CSP policy or, if the resource is from a trusted source, whitelist it.
+
+    To disable CSP entirely (not recommended for production):
+
+    ```properties
+    csp.enabled = false
+    ```
+  </Accordion>
+
+  <Accordion title="Login page shows detailed error messages">
+    By default (`webapp.security.login.errordetails = true`), failed login attempts show whether the username or password was wrong. In production, set this to `false` to avoid leaking account existence information:
+
+    ```properties
+    webapp.security.login.errordetails = false
+    ```
+  </Accordion>
+
+  <Accordion title="Start page lists all participants">
+    Listing all registered participants on the public start page can expose sensitive information. Disable it:
+
+    ```properties
+    webapp.startpage.participants.none = true
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Log analysis
+
+phoss SMP uses Log4j 2 with SLF4J. Log output goes to the application server's standard output by default.
+
+**Enable debug logging for SMP components:**
+
+```xml
+<!-- log4j2.xml -->
+<Logger name="com.helger.phoss.smp" level="DEBUG" additivity="false">
+  <AppenderRef ref="Console"/>
+</Logger>
+```
+
+**Key log patterns to look for:**
+
+| Pattern | Meaning |
+|---------|--------|
+| `Keystore loading failed` | Keystore path, password, or alias problem |
+| `No SMP backend registered` | `smp.backend` value does not match any backend ID |
+| `SML registration` | SML call result (success or error detail) |
+| `SMPRestFilter` | Incoming REST request dispatch |
+| `DAOException` | XML backend file read/write failure |
+| `Flyway` | SQL migration status |
+
+<Tip>
+Set `global.debug = true` temporarily to get verbose request logging. Always set it back to `false` before going to production.
+</Tip>

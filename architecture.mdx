@@ -1,0 +1,189 @@
+---
+title: Architecture
+description: An overview of phoss SMP's three-layer module design, backend plugin system, domain model, REST dispatch flow, and web layer.
+---
+
+phoss SMP is a Java web application that implements the Peppol SMP 1.x, OASIS BDXR SMP 1.0, and OASIS BDXR SMP 2.0 specifications. It is deployed as a WAR file on Tomcat 10.1 or Jetty 12 (Jakarta EE 10), and it exposes both a REST API (consumed by Peppol/BDXR clients) and a Bootstrap 4 management UI.
+
+## Three-layer module architecture
+
+The project follows a layered architecture with a backend strategy pattern. Modules are split into three layers:
+
+| Layer | Modules | Role |
+| ----- | ------- | ---- |
+| Backend interfaces | `phoss-smp-backend` | Core domain interfaces, REST API logic, configuration, domain model |
+| Backend implementations | `phoss-smp-backend-xml`, `phoss-smp-backend-sql`, `phoss-smp-backend-mongodb` | Storage-specific persistence; each implements the interfaces defined in the core module |
+| Web application | `phoss-smp-webapp`, `phoss-smp-webapp-xml`, `phoss-smp-webapp-sql`, `phoss-smp-webapp-mongodb` | Servlets, REST filters, management UI pages; the `webapp-*` modules are the deployable WARs |
+
+Only the `phoss-smp-webapp-*` modules produce deployable WAR artifacts. Everything else is a library dependency.
+
+```
+phoss-smp-parent-pom
+├── phoss-smp-backend          ← interfaces, REST logic, config
+├── phoss-smp-backend-xml      ← XML file persistence
+├── phoss-smp-backend-sql      ← JDBC + Flyway (MySQL/PostgreSQL/Oracle/DB2)
+├── phoss-smp-backend-mongodb  ← MongoDB persistence
+├── phoss-smp-webapp           ← servlets, UI, REST filters
+├── phoss-smp-webapp-xml       ← deployable WAR (webapp + backend-xml)
+├── phoss-smp-webapp-sql       ← deployable WAR (webapp + backend-sql)
+└── phoss-smp-webapp-mongodb   ← deployable WAR (webapp + backend-mongodb)
+```
+
+## Backend plugin system
+
+Backends are registered and selected at runtime via the Java `ServiceLoader` SPI mechanism.
+
+### Registration
+
+Each backend module provides two SPI implementations on the classpath:
+
+1. **`ISMPBackendRegistrarSPI`** — registers the backend under a string ID (`"xml"`, `"sql"`, or `"mongodb"`) with `SMPBackendRegistry`.
+2. **`ISMPManagerProvider`** — a factory interface that vends all manager instances required by the application.
+
+At startup, `SMPMetaManager.initBackendFromConfiguration()` reads the `smp.backend` property, looks up the matching `ISMPManagerProvider` in the registry, and passes it to `SMPMetaManager.setManagerProvider()` before the singleton initialises.
+
+```java
+// Startup sequence (simplified from SMPMetaManager.java)
+SMPBackendRegistry aBackendRegistry = SMPBackendRegistry.getInstance();
+String sBackendID = SMPServerConfiguration.getBackend(); // e.g. "xml"
+ISMPManagerProvider aManagerProvider = aBackendRegistry.getManagerProvider(sBackendID);
+SMPMetaManager.setManagerProvider(aManagerProvider);
+SMPMetaManager.getInstance(); // triggers full initialization
+```
+
+### ISMPManagerProvider
+
+`ISMPManagerProvider` is the central factory interface in `phoss-smp-backend`. Every backend must implement it. The methods it declares:
+
+| Method | Returns | Notes |
+| ------ | ------- | ----- |
+| `createSMLInfoMgr()` | `ISMLInfoManager` | SML endpoint configuration |
+| `createSettingsMgr()` | `ISMPSettingsManager` | Runtime settings |
+| `createTransportProfileMgr()` | `ISMPTransportProfileManager` | Supported transport protocols |
+| `createServiceGroupMgr()` | `ISMPServiceGroupManager` | Participant registry |
+| `createRedirectMgr(factory)` | `ISMPRedirectManager` | Cross-SMP redirects |
+| `createServiceInformationMgr(factory)` | `ISMPServiceInformationManager` | Document-type endpoint routing |
+| `createParticipantMigrationMgr()` | `ISMPParticipantMigrationManager` | Peppol participant migration |
+| `createBusinessCardMgr(factory, sgMgr)` | `ISMPBusinessCardManager` (nullable) | Peppol Directory cards |
+| `getBackendConnectionEstablishedDefaultState()` | `ETriState` | XML returns `TRUE`; SQL returns `UNDEFINED` until DB is reachable |
+
+`SMPMetaManager` (a global singleton) holds the live instances and exposes static getters (`getServiceGroupMgr()`, `getRedirectMgr()`, etc.) used throughout the application.
+
+<Note>
+  To implement a custom backend, create a sub-project that provides both `ISMPManagerProvider` and `ISMPBackendRegistrarSPI`, following the pattern of `phoss-smp-backend-xml`. Then create a matching `phoss-smp-webapp-*` sub-project that bundles your backend with the core web layer.
+</Note>
+
+## Key domain concepts
+
+| Concept | Description |
+| ------- | ----------- |
+| **ServiceGroup** | Represents a participant, identified by a participant ID (e.g. `iso6523-actorid-upis::0088:123456789`). The top-level entity in the SMP data model. |
+| **ServiceMetadata / ServiceInformation** | Per-document-type routing information for a ServiceGroup. Describes which Access Point endpoints handle a given document type and process combination. |
+| **Redirect** | A pointer to a different SMP for a specific document type under a ServiceGroup. Used when a participant's metadata is hosted on another SMP. |
+| **BusinessCard** | Extended participant information published to the Peppol Directory (name, address, contacts). Optional — only available when the `ISMPBusinessCardManager` is non-null. |
+| **TransportProfile** | A supported transport protocol identifier, e.g. `peppol-transport-as4-v2_0`. Used as a key inside ServiceInformation endpoints. |
+
+All manager interfaces for these entities live under `com.helger.phoss.smp.domain.*` in `phoss-smp-backend`. Backend-specific implementations live in their respective modules.
+
+## REST API dispatch flow
+
+All incoming HTTP requests hit the `SMPRestFilter` (mapped to `/*`) first. The filter inspects the request path and method to decide which API handler to invoke:
+
+```
+HTTP request
+    │
+    ▼
+SMPRestFilter  (/*)
+    │
+    ├─► SMPServerAPI     — Peppol SMP 1.x
+    ├─► BDXR1ServerAPI   — OASIS BDXR SMP 1.0
+    └─► BDXR2ServerAPI   — OASIS BDXR SMP 2.0
+```
+
+The active API variant is controlled by `smp.rest.type` in `application.properties` (`peppol` or `bdxr`). All three API classes live in:
+
+```
+phoss-smp-backend/src/main/java/com/helger/phoss/smp/restapi/
+```
+
+### REST endpoints
+
+| Method | Path | Auth required | Description |
+| ------ | ---- | :-----------: | ----------- |
+| `GET` | `/{ServiceGroupId}` | No | List document types for participant |
+| `PUT` | `/{ServiceGroupId}` | Yes | Create service group |
+| `DELETE` | `/{ServiceGroupId}` | Yes | Delete service group |
+| `GET` | `/{ServiceGroupId}/services/{DocumentTypeId}` | No | Get endpoints for document type |
+| `PUT` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Create/update endpoint metadata |
+| `DELETE` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Delete endpoint metadata |
+| `GET` | `/businesscard/{ServiceGroupId}` | No | Get business card |
+| `PUT` | `/businesscard/{ServiceGroupId}` | Yes | Create/update business card |
+| `DELETE` | `/businesscard/{ServiceGroupId}` | Yes | Delete business card |
+| `GET` | `/smp-status/` | No | Health/status JSON (disabled by default) |
+
+### Authentication
+
+Authenticated endpoints accept two schemes:
+
+- **Bearer token** (preferred, v6.0.7+): `Authorization: Bearer <token>` — tokens are created under Administration > Security > User Tokens in the management UI.
+- **Basic auth** (legacy): `Authorization: Basic Base64(email:password)`
+
+<Info>
+  The Remote Query API (`/smpquery/*`) is disabled by default for security reasons. Enable it with `smp.rest.remote.queryapi.disabled=false`.
+</Info>
+
+## Web layer servlet mappings
+
+The management UI is built on the **ph-oton / Photon** framework (server-side HTML generation, Bootstrap 4). It does not use a template engine — UI page classes extend `AbstractSMPWebPageForm` or `AbstractSMPWebPageSimpleForm` and generate HTML programmatically.
+
+| Path | Servlet / Filter | Purpose |
+| ---- | ---------------- | ------- |
+| `/*` | `SMPRestFilter` | REST API dispatch (runs before all other mappings) |
+| `/secure/*` | `SecureApplicationServlet` | Authenticated management UI |
+| `/public/*` | `PublicApplicationServlet` | Public information pages |
+| `/smp-status/*` | `SMPStatusServlet` | Health/status JSON endpoint |
+| `/ping/*` | `PingPongServlet` | Liveness probe |
+| `/logout/*` | `SMPLogoutServlet` | Session logout |
+
+## Configuration system
+
+Configuration is loaded from `application.properties` (inside the WAR) and optionally overridden by a file specified at startup:
+
+```bash
+# Override config file path at startup
+java -Dconfig.file=/etc/phoss-smp/application.properties -jar ...
+```
+
+For local development, place overrides in `private-application.properties` next to `application.properties` — it is gitignored and takes precedence over the committed defaults.
+
+Key configuration groups:
+
+| Group | Property prefix | Purpose |
+| ----- | --------------- | ------- |
+| Backend selection | `smp.backend` | Choose `xml`, `sql`, or `mongodb` |
+| Identifier scheme | `smp.identifiertype`, `smp.rest.type` | Peppol or BDXR identifier/REST flavour |
+| PKI / keystore | `smp.keystore.*` | TLS and SML signing certificate |
+| SQL connection | `jdbc.*`, `target-database` | JDBC URL, credentials, Flyway target |
+| Data directory | `webapp.datapath` | Root path for XML backend storage |
+| Public URL | `smp.publicurl`, `smp.publicurl.mode` | URL returned in SMP responses |
+| SML integration | `sml.enabled`, `sml.smpid` | Registration with the SML |
+| Directory | `smp.directory.integration.*` | Peppol Directory auto-update |
+| Security | `csp.enabled`, `webapp.security.*` | CSP headers, login error detail suppression |
+
+<Note>
+  Service Group identifiers may contain encoded slashes (`%2F`). Tomcat 10+ requires `encodedSolidusHandling="passthrough"` (or `"decode"`) on the HTTP Connector in `server.xml`. This is pre-configured in the official Docker images.
+</Note>
+
+## Technology stack
+
+| Category | Technology |
+| -------- | ---------- |
+| Runtime | Java 17+, Jakarta EE 10 |
+| App server | Tomcat 10.1.x or Jetty 12.x |
+| Build | Maven 3.6+ |
+| Web/UI framework | ph-oton (Bootstrap 4, server-side HTML) |
+| Peppol libraries | peppol-commons, peppol-smp-client, peppol-sml-client |
+| SQL persistence | Apache Commons DBCP2 (pooling), Flyway 12 (migrations) |
+| NoSQL persistence | MongoDB driver 5.6.3 |
+| Logging | Log4j 2 + SLF4J |
+| License | MPL 2.0 + Apache 2.0 |

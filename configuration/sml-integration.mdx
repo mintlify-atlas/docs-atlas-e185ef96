@@ -1,0 +1,74 @@
+---
+title: 'SML integration'
+description: 'Connect phoss SMP to the Service Metadata Locator for DNS-based participant discovery in Peppol and OASIS BDXR networks.'
+---
+
+## What the SML does
+
+The Service Metadata Locator (SML) is a DNS-based lookup service. When a sending Access Point needs to find which SMP manages a participant, it queries the SML. The SML resolves the participant identifier to an SMP hostname using a deterministic DNS naming scheme.
+
+For this to work, your SMP must be registered with the SML. phoss SMP can manage this registration automatically when SML integration is enabled.
+
+## Enabling SML integration
+
+SML integration is disabled by default. Enable it through the Administration UI (Administration > SML Configuration) or by pre-configuring the settings table in your backend. The flag is stored as a runtime setting, not a static property.
+
+The `sml.enabled` runtime setting maps to `ISMPSettings.isSMLEnabled()`.
+
+## Static SML properties
+
+These properties are read at startup and cannot be changed at runtime:
+
+```properties
+# The SMP identifier registered with the SML
+# This must match the ID assigned to you by your Peppol Authority
+sml.smpid = YOUR-SMP-ID
+
+# Optional: pre-fill the default SMP hostname for SML registration
+# Format: http://smp.example.org (include http:// prefix)
+sml.smp.hostname = http://smp.example.org
+
+# Connection timeout for SML API calls (milliseconds)
+# Defaults to system default when not set
+sml.connection.timeout.ms = 5000
+
+# Request/read timeout for SML API calls (milliseconds)
+# Default: 30000 ms (30 seconds)
+sml.request.timeout.ms = 20000
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `sml.smpid` | — | The SMP identifier string registered with the SML. Assigned by your Peppol Authority. Required when SML is enabled. |
+| `sml.smp.hostname` | — | Default SMP hostname pre-filled in the registration form. Optional convenience setting. |
+| `sml.connection.timeout.ms` | system default | TCP connection timeout when calling the SML API, in milliseconds. |
+| `sml.request.timeout.ms` | `30000` | HTTP read timeout when calling the SML API, in milliseconds. |
+
+## DNS delegation
+
+When you register your SMP with the SML, the SML creates a DNS CNAME record that delegates the subdomain for your participant identifiers to your SMP. The SML computes the DNS name by hashing the participant identifier with MD5 and prepending it to the SML DNS zone.
+
+For example, in the Peppol pilot network the DNS zone is `acc.edelivery.tech.ec.europa.eu`. A participant with identifier `iso6523-actorid-upis::0088:5790000436057` resolves to a CNAME under that zone pointing to your SMP.
+
+<Note>
+Your SMP must be publicly reachable on port 80 or 443 at the registered hostname before you register it with the SML. The SML may verify connectivity during registration.
+</Note>
+
+## Peppol SML vs OASIS SML
+
+| | Peppol SML | OASIS SML |
+|--|------------|-----------|
+| Standard | Peppol SMP 1.x | OASIS BDXR SMP 1.0 / 2.0 |
+| Governance | OpenPeppol | OASIS |
+| Pilot endpoint | `acc.edelivery.tech.ec.europa.eu` | Network-specific |
+| Production endpoint | `edelivery.tech.ec.europa.eu` | Network-specific |
+
+The SML endpoint is selected from the Administration UI, not from `application.properties`. The UI lists all pre-configured SML entries from `peppol-commons`.
+
+## Production vs test SML
+
+<Warning>
+Never register a test SMP with the production SML. Registration on the production SML affects real participants and document routing.
+</Warning>
+
+Use the pilot SML (`acc.edelivery.tech.ec.europa.eu`) for all development and integration testing. Switch to the production SML only when your SMP is ready for live traffic and you have a production certificate.

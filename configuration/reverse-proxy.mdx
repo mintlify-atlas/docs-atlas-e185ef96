@@ -1,0 +1,124 @@
+---
+title: 'Reverse proxy'
+description: 'Run phoss SMP behind Nginx or Apache with correct URL generation, context path handling, and HTTPS termination.'
+---
+
+phoss SMP is typically deployed as a WAR inside Tomcat, which may itself sit behind a reverse proxy that handles TLS and routes traffic from port 443. This page explains how to configure URL generation so that responses contain correct, publicly reachable URLs.
+
+## Why URL configuration matters
+
+The SMP REST API embeds absolute URLs in its XML responses. For example, a ServiceGroup response includes the full URL for each service metadata endpoint. If the SMP generates URLs based on the internal Tomcat address (`http://localhost:8080/smp/...`) rather than the public address (`https://smp.example.org/...`), SMP clients will fail to dereference those links.
+
+## Force root path
+
+When Tomcat deploys the WAR under a context path (e.g. `/smp`) but the reverse proxy strips that prefix before forwarding, set `smp.forceroot` to `true`:
+
+```properties
+# Rewrite all generated path references to start from "/" instead of the context path
+smp.forceroot = true
+```
+
+This is the default in the bundled `application.properties` files. Set it to `false` only if you deploy without a proxy and want the context path preserved in URLs.
+
+## Explicit public URL
+
+Set `smp.publicurl` to override the base URL used for all absolute URL generation:
+
+```properties
+smp.publicurl = https://smp.example.org
+```
+
+When this property is set, it takes precedence over any URL derived from the incoming request or forwarded headers.
+
+## Public URL mode
+
+When `smp.publicurl` is not set, the server derives the base URL from the incoming request. The `smp.publicurl.mode` property controls which source is used:
+
+```properties
+# Allowed values: request, x-forwarded-header, forwarded-header
+smp.publicurl.mode = request
+```
+
+| Value | Description |
+|-------|-------------|
+| `request` | Derive the base URL from the HTTP request itself (scheme, host, port). Default. Works when the proxy preserves the original `Host` header and the scheme. |
+| `x-forwarded-header` | Read `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-Port` headers set by the proxy. Use when your proxy sets these non-standard headers. |
+| `forwarded-header` | Read the RFC 7239 `Forwarded` header. Use when your proxy sets the standardized `Forwarded` header. |
+
+## Nginx configuration example
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name smp.example.org;
+
+    ssl_certificate     /etc/ssl/smp.example.org.crt;
+    ssl_certificate_key /etc/ssl/smp.example.org.key;
+
+    location / {
+        proxy_pass         http://localhost:8080;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Host  $host;
+    }
+}
+```
+
+With this setup use:
+
+```properties
+smp.publicurl = https://smp.example.org
+smp.forceroot = true
+```
+
+## Apache HTTP Server configuration example
+
+```apache
+<VirtualHost *:443>
+    ServerName smp.example.org
+
+    SSLEngine on
+    SSLCertificateFile    /etc/ssl/smp.example.org.crt
+    SSLCertificateKeyFile /etc/ssl/smp.example.org.key
+
+    ProxyPreserveHost On
+    ProxyPass        / http://localhost:8080/
+    ProxyPassReverse / http://localhost:8080/
+
+    RequestHeader set X-Forwarded-Proto "https"
+</VirtualHost>
+```
+
+## Context path considerations
+
+If you deploy the WAR under a context path (e.g. Tomcat with `smp.war` placed in `webapps/smp/`), the application runs at `http://localhost:8080/smp/`. When the proxy strips the `/smp` prefix:
+
+1. Set `smp.forceroot = true` so internal links use `/` rather than `/smp/`.
+2. Set `smp.publicurl = https://smp.example.org` so absolute URLs in API responses are correct.
+
+## HTTPS termination at the proxy
+
+phoss SMP does not need to handle TLS directly when HTTPS is terminated at the proxy. The proxy accepts HTTPS connections and forwards plain HTTP to Tomcat. This is the recommended production architecture.
+
+<Note>
+Ensure the proxy forwards the original scheme to the application (via `X-Forwarded-Proto: https` or the `Forwarded` header). Otherwise the SMP may generate `http://` URLs in responses even though clients connect over HTTPS.
+</Note>
+
+## Encoded slash handling
+
+Some participant identifiers contain encoded slashes (`%2F`). Tomcat 10+ requires explicit configuration to decode these in URL paths:
+
+```xml
+<!-- server.xml Connector -->
+<Connector port="8080" protocol="HTTP/1.1"
+           encodedSolidusHandling="decode"
+           ... />
+```
+
+For Tomcat versions before 10, set the JVM property:
+
+```bash
+-Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+```

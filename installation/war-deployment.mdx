@@ -1,0 +1,169 @@
+---
+title: WAR deployment
+description: Deploy phoss SMP as a WAR file to Apache Tomcat 10.1 or Jetty 12.
+---
+
+You can deploy phoss SMP as a standard Java web application archive (WAR) to any Jakarta EE 10 compatible servlet container. Apache Tomcat 10.1.x is the recommended and most tested option.
+
+## Download the WAR
+
+Pre-built WAR files are published to two locations:
+
+<CardGroup cols={2}>
+  <Card title="GitHub Releases" icon="github" href="https://github.com/phax/phoss-smp/releases">
+    Download `phoss-smp-webapp-xml-*.war`, `phoss-smp-webapp-sql-*.war`, or `phoss-smp-webapp-mongodb-*.war` from the release assets.
+  </Card>
+  <Card title="Maven Central" icon="box">
+    Group ID `com.helger`, artifact IDs `phoss-smp-webapp-xml`, `phoss-smp-webapp-sql`, `phoss-smp-webapp-mongodb`.
+  </Card>
+</CardGroup>
+
+Choose the WAR that matches your desired backend:
+
+| WAR file | Backend |
+|----------|---------|
+| `phoss-smp-webapp-xml-*.war` | XML (file-based) |
+| `phoss-smp-webapp-sql-*.war` | SQL (MySQL/PostgreSQL/Oracle/DB2) |
+| `phoss-smp-webapp-mongodb-*.war` | MongoDB |
+
+## Deploy to Tomcat 10.1
+
+<Steps>
+  <Step title="Install Tomcat 10.1">
+    Download and install Apache Tomcat 10.1.x from https://tomcat.apache.org/. Ensure you are using a JDK 17+ environment.
+
+    ```bash
+    java -version   # must be 17 or later
+    ```
+  </Step>
+
+  <Step title="Configure encoded slash handling">
+    Participant identifiers in the SMP REST API may contain encoded slashes (`%2F`). Tomcat 10 requires an explicit connector setting to decode them correctly.
+
+    Open `$CATALINA_HOME/conf/server.xml` and add `encodedSolidusHandling="decode"` to the HTTP Connector element:
+
+    ```xml
+    <Connector port="8080" protocol="HTTP/1.1"
+               encodedSolidusHandling="decode"
+               connectionTimeout="20000"
+               redirectPort="8443" />
+    ```
+
+    <Warning>
+    Without this setting, any participant ID containing `%2F` will result in a 400 error from Tomcat before the request reaches the application.
+    </Warning>
+
+    For **Tomcat versions before 10**, set the following JVM system property instead (the connector attribute was not available):
+
+    ```bash
+    CATALINA_OPTS="$CATALINA_OPTS -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true"
+    ```
+  </Step>
+
+  <Step title="Prepare the data directory">
+    Create a directory where phoss SMP will store its runtime data (XML files, logs, etc.):
+
+    ```bash
+    mkdir -p /var/smp
+    chown tomcat:tomcat /var/smp
+    ```
+
+    Use an **absolute path** in production. Relative paths are resolved relative to the working directory of the Tomcat process, which varies by installation.
+  </Step>
+
+  <Step title="Create the configuration file">
+    Copy the default `application.properties` from the WAR or start from a template. At minimum, set:
+
+    ```properties
+    # Backend selection
+    smp.backend = xml
+
+    # Data directory (absolute path)
+    webapp.datapath = /var/smp
+
+    # Keystore
+    smp.keystore.type         = pkcs12
+    smp.keystore.path         = /etc/smp/keystore/smp.p12
+    smp.keystore.password     = changeit
+    smp.keystore.key.alias    = smp.pilot
+    smp.keystore.key.password = changeit
+
+    # SML identifier
+    sml.smpid = YOUR-SMP-ID
+
+    # Production flags
+    global.debug      = false
+    global.production = true
+    ```
+
+    Save the file to a location outside the WAR, for example `/etc/smp/application.properties`.
+  </Step>
+
+  <Step title="Point the application to your config file">
+    Pass the config file path as a JVM system property when starting Tomcat:
+
+    ```bash
+    CATALINA_OPTS="$CATALINA_OPTS -Dconfig.file=/etc/smp/application.properties"
+    ```
+
+    Add this to `$CATALINA_HOME/bin/setenv.sh` (create the file if it does not exist).
+  </Step>
+
+  <Step title="Deploy the WAR">
+    Drop the WAR file into Tomcat's webapps directory:
+
+    ```bash
+    # Deploy as root context (recommended)
+    cp phoss-smp-webapp-xml-8.1.3.war $CATALINA_HOME/webapps/ROOT.war
+
+    # Or deploy under a context path
+    cp phoss-smp-webapp-xml-8.1.3.war $CATALINA_HOME/webapps/smp.war
+    ```
+
+    Start or restart Tomcat:
+
+    ```bash
+    $CATALINA_HOME/bin/startup.sh
+    ```
+
+    Tomcat will automatically expand the WAR and deploy the application.
+  </Step>
+
+  <Step title="Verify the deployment">
+    Open `http://localhost:8080` in your browser (or `http://localhost:8080/smp` if deployed under a context path). The phoss SMP start page should appear.
+
+    Default credentials are documented in the [Wiki](https://github.com/phax/phoss-smp/wiki/Running#default-login).
+  </Step>
+</Steps>
+
+## Context path considerations
+
+The SMP REST API generates absolute URLs for responses (for example, the service group endpoint URL returned to Access Points). When the WAR is deployed under a non-root context path such as `/smp`, the generated URLs must still reflect the public root URL.
+
+Set `smp.forceroot = true` in `application.properties` to strip the context path from all generated links:
+
+```properties
+# Force all generated links to use "/" as the root path.
+# Required when the app is deployed under a context path but reverse-proxied to root.
+smp.forceroot = true
+
+# Explicitly set the public base URL (recommended in production)
+smp.publicurl = https://smp.example.org
+```
+
+<Info>
+`smp.forceroot` is set to `true` in the default `application.properties` shipped with the XML backend. Verify the value in your configuration matches your deployment topology.
+</Info>
+
+## Jetty 12 deployment
+
+For local development or lightweight deployments, Jetty 12 (Jakarta EE 10 variant) is also supported. To run directly from the IDE without building a WAR, use the launcher classes in each webapp module:
+
+| Backend | Launcher class |
+|---------|----------------|
+| XML | `RunInJettySMPSERVER_XML` in `phoss-smp-webapp-xml` |
+| SQL | `RunInJettySMPSERVER_SQL` in `phoss-smp-webapp-sql` |
+
+Default URL: `http://localhost:90`. Default credentials: `admin@helger.com` / `password`.
+
+For local configuration overrides without modifying committed files, create `private-application.properties` alongside `application.properties`. This file is gitignored and takes precedence over the defaults.

@@ -1,0 +1,111 @@
+---
+title: 'Authentication'
+description: 'How to authenticate write requests to the phoss SMP REST API using Bearer tokens or HTTP Basic Auth.'
+---
+
+Read endpoints (`GET`) require no authentication. All write endpoints (`PUT`, `DELETE`) and the business card push endpoint (`POST`) require authentication.
+
+Two authentication methods are supported.
+
+## Bearer token (recommended)
+
+Available since phoss SMP v6.0.7. Tokens are created in the management UI under **Administration > Security > User Tokens**.
+
+Pass the token in the `Authorization` request header:
+
+```
+Authorization: Bearer <token>
+```
+
+### Creating a token
+
+<Steps>
+  <Step title="Log in to the management UI">
+    Navigate to your SMP's management UI at `/secure/`.
+  </Step>
+  <Step title="Open User Tokens">
+    Go to **Administration > Security > User Tokens**.
+  </Step>
+  <Step title="Create a new token">
+    Click **Create new token**. Copy the token value — it is only shown once.
+  </Step>
+</Steps>
+
+### curl example
+
+```bash
+curl -X PUT \
+  https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/xml" \
+  --data-binary @service-group.xml
+```
+
+## HTTP Basic Auth (legacy)
+
+Uses the SMP user's email address and password encoded as Base64.
+
+```
+Authorization: Basic Base64(email:password)
+```
+
+### curl example
+
+Use the `-u` flag with `email:password`:
+
+```bash
+curl -X PUT \
+  https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007 \
+  -u admin@helger.com:password \
+  -H "Content-Type: application/xml" \
+  --data-binary @service-group.xml
+```
+
+<Note>
+curl automatically Base64-encodes the credentials when you use the `-u` flag.
+</Note>
+
+## Which endpoints require authentication
+
+| Method | Path | Auth required |
+|--------|------|---------------|
+| `GET` | `/{ServiceGroupId}` | No |
+| `PUT` | `/{ServiceGroupId}` | Yes |
+| `DELETE` | `/{ServiceGroupId}` | Yes |
+| `GET` | `/{ServiceGroupId}/services/{DocumentTypeId}` | No |
+| `PUT` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes |
+| `DELETE` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes |
+| `GET` | `/businesscard/{ServiceGroupId}` | No |
+| `PUT` | `/businesscard/{ServiceGroupId}` | Yes |
+| `DELETE` | `/businesscard/{ServiceGroupId}` | Yes |
+| `POST` | `/businesscard/{ServiceGroupId}/push` | Yes |
+| `GET` | `/smp-status/` | No |
+| `GET` | `/ping/` | No |
+
+## Ownership
+
+Even with valid credentials, a user can only modify service groups they own. Attempting to write to a service group owned by a different user returns `403 Forbidden`.
+
+## Error responses
+
+**Missing or invalid credentials**
+
+```
+HTTP/1.1 401 Unauthorized
+```
+
+The response body contains a plain-text description of the authentication failure.
+
+**Valid credentials, wrong owner**
+
+```
+HTTP/1.1 403 Forbidden
+```
+
+The authenticated user does not own the service group.
+
+## Security recommendations
+
+- Prefer Bearer tokens over Basic Auth. Tokens can be revoked without changing your account password.
+- Use HTTPS in production. Credentials sent over plain HTTP are visible in transit.
+- Set `webapp.security.login.errordetails = false` in production to prevent the server from revealing whether an email address exists.

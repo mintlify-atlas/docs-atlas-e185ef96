@@ -1,0 +1,116 @@
+---
+title: 'Backends and identifiers'
+description: 'Select the storage backend, configure identifier schemes, tune REST API behavior, and set up HTTP proxy access.'
+---
+
+## Backend selection
+
+phoss SMP supports three pluggable storage backends. Select one with the `smp.backend` property.
+
+```properties
+# Allowed values: xml, sql, mongodb
+smp.backend = sql
+```
+
+| Value | Description |
+|-------|-------------|
+| `xml` | File-based XML storage. Simple to set up; no external database required. Suitable for small deployments. |
+| `sql` | Relational database via JDBC (MySQL, PostgreSQL, Oracle, MS SQL Server). Recommended for production. |
+| `mongodb` | MongoDB document store. |
+
+<Note>
+The WAR file you deploy determines which backends are available. `phoss-smp-webapp-sql.war` only supports `sql`; `phoss-smp-webapp-xml.war` only supports `xml`. Setting the wrong value causes a startup error.
+</Note>
+
+For SQL-specific properties (`jdbc.*`, `target-database`), see the SQL backend documentation.
+
+## Identifier type
+
+The `smp.identifiertype` property controls which participant and document-type identifier schemes are accepted and how strictly they are validated.
+
+```properties
+# Allowed values: peppol, peppol-lax, simple, bdxr1, bdxr2
+smp.identifiertype = peppol
+```
+
+| Value | Description |
+|-------|-------------|
+| `peppol` | Full Peppol identifier validation. Enforces scheme prefixes and case normalization. Use for standard Peppol networks. |
+| `peppol-lax` | Peppol-style identifiers with relaxed validation. Accepts some deviations from the strict rules. |
+| `simple` | Unchecked, scheme-free identifiers. No validation is applied. Useful for custom or non-standard networks. |
+| `bdxr1` | OASIS BDXR SMP 1.0 identifier rules. |
+| `bdxr2` | OASIS BDXR SMP 2.0 identifier rules. |
+
+## REST API type
+
+The `smp.rest.type` property determines the XML namespace and response format returned by the read API.
+
+```properties
+# Allowed values: peppol, bdxr
+smp.rest.type = peppol
+```
+
+| Value | Response format |
+|-------|-----------------|
+| `peppol` | Peppol SMP 1.x XML responses. Use for standard Peppol deployments. |
+| `bdxr` | OASIS BDXR SMP XML responses. Use when clients expect the OASIS namespace. |
+
+## REST API error behavior
+
+```properties
+# Log exceptions that result in HTTP error responses
+smp.rest.log.exceptions = false
+
+# Include a plain-text error message in the HTTP response body on errors
+smp.rest.payload.on.error = true
+
+# Return HTTP 204 (instead of 404) when deleting a non-existent entity
+smp.rest.delete.notfound.as.ok = false
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `smp.rest.log.exceptions` | `false` | When `true`, exceptions that produce HTTP error responses are written to the application log. |
+| `smp.rest.payload.on.error` | `true` | When `true`, error details are returned in the HTTP response body. Consider setting to `false` in production for security. |
+| `smp.rest.delete.notfound.as.ok` | `false` | When `true`, a DELETE on a non-existent resource returns HTTP 204 instead of HTTP 404. Useful for idempotent client workflows. |
+
+## Remote Query API
+
+The Remote Query API (`/smpquery/*`) lets clients query other SMP servers through your instance. It is disabled by default.
+
+```properties
+# true = disabled (default), false = enabled
+smp.rest.remote.queryapi.disabled = true
+```
+
+<Warning>
+Leave this disabled unless you explicitly need it. Enabling it allows your server to be used as a proxy for outbound SMP lookups.
+</Warning>
+
+## Timezone
+
+The SMP uses this timezone when formatting timestamps in responses and logs.
+
+```properties
+# Defaults to the JVM system timezone when not set
+smp.timezone = Europe/Vienna
+```
+
+Use any valid Java timezone ID (e.g. `UTC`, `America/New_York`).
+
+## HTTP proxy
+
+Configure outbound HTTP/HTTPS proxy settings for SML and Directory client connections.
+
+```properties
+http.proxyHost  = 10.0.0.10
+http.proxyPort  = 8080
+https.proxyHost = 10.0.0.10
+https.proxyPort = 8080
+
+# Optional credentials
+proxy.username = myuser
+proxy.password = secret
+```
+
+Leave these commented out if your server can reach the internet directly.

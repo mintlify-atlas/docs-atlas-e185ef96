@@ -1,0 +1,139 @@
+---
+title: Authentication
+description: How to authenticate with the phoss SMP REST API and management UI.
+---
+
+phoss SMP has two authentication surfaces:
+
+1. **Management UI** — session-based login at `/secure/`.
+2. **REST API** — HTTP request-level authentication on all write endpoints (`PUT`, `DELETE`).
+
+## REST API authentication
+
+All write operations on the REST API require credentials. Two schemes are supported:
+
+<Tabs>
+  <Tab title="Bearer token (recommended)">
+    Available since **v6.0.7**. Pass a token in the `Authorization` header:
+
+    ```http
+    Authorization: Bearer <token>
+    ```
+
+    Example with curl:
+
+    ```bash
+    curl -X PUT https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A123456789 \
+      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9..." \
+      -H "Content-Type: application/xml" \
+      --data-binary @service-group.xml
+    ```
+
+    Tokens are created and managed in **Administration > Security > User Tokens** in the management UI. Each token is associated with a user account. Revoke a token at any time from the same page.
+
+    <Tip>
+      Use Bearer tokens for all new integrations. Unlike Basic Auth, a token can be revoked independently of the user password and never exposes the account credentials.
+    </Tip>
+  </Tab>
+  <Tab title="Basic Auth (legacy)">
+    HTTP Basic Authentication is the legacy scheme. Encode `email:password` in Base64 and pass it in the `Authorization` header:
+
+    ```http
+    Authorization: Basic Base64(email:password)
+    ```
+
+    Example with curl:
+
+    ```bash
+    curl -X PUT https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A123456789 \
+      -u admin@helger.com:password \
+      -H "Content-Type: application/xml" \
+      --data-binary @service-group.xml
+    ```
+
+    <Warning>
+      Basic Auth transmits the account password on every request. Always use HTTPS when using Basic Auth, and prefer Bearer tokens for new integrations.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Which endpoints require authentication?
+
+| Method | Path | Auth required |
+|--------|------|---------------|
+| GET | `/{ServiceGroupId}` | No |
+| PUT | `/{ServiceGroupId}` | Yes |
+| DELETE | `/{ServiceGroupId}` | Yes |
+| GET | `/{ServiceGroupId}/services/{DocumentTypeId}` | No |
+| PUT | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes |
+| DELETE | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes |
+| GET | `/businesscard/{ServiceGroupId}` | No |
+| PUT | `/businesscard/{ServiceGroupId}` | Yes |
+| DELETE | `/businesscard/{ServiceGroupId}` | Yes |
+
+## Management UI login
+
+The management UI at `/secure/` uses server-side session authentication managed by the ph-oton framework. Sessions are maintained via a browser cookie.
+
+### Default credentials
+
+| Field | Default value |
+|-------|---------------|
+| Email | `admin@helger.com` |
+| Password | `password` |
+
+<Warning>
+Change the default password on first login before exposing the server to a network. Navigate to **Administration > Change Password** after logging in.
+</Warning>
+
+### Login error details
+
+By default the login page may indicate whether the email or the password was wrong. Disable this in production to avoid user enumeration:
+
+```properties
+webapp.security.login.errordetails = false
+```
+
+## Creating and managing user tokens
+
+<Steps>
+  <Step title="Log in to the management UI">
+    Open `/secure/` and sign in with an admin account.
+  </Step>
+  <Step title="Navigate to User Tokens">
+    Go to **Administration > Security > User Tokens**.
+  </Step>
+  <Step title="Create a new token">
+    Click **Create new User Token**. Assign it to a user account and optionally set an expiry date. Copy the generated token value — it is shown only once.
+  </Step>
+  <Step title="Use the token in API calls">
+    Include `Authorization: Bearer <token>` in every write request.
+  </Step>
+  <Step title="Revoke a token when no longer needed">
+    Return to **User Tokens** and delete the token. The corresponding `Authorization: Bearer` header will immediately start returning HTTP 401.
+  </Step>
+</Steps>
+
+## Security recommendations
+
+- **Prefer Bearer tokens** over Basic Auth for all API clients.
+- **Use HTTPS** in production. Basic Auth over plain HTTP sends credentials in clear text.
+- **Disable login error details** in production (`webapp.security.login.errordetails = false`).
+- **Change the default admin password** immediately after installation.
+- **Rotate tokens** regularly and revoke any that are no longer in use.
+- Avoid exposing `/secure/` to the public internet where possible; restrict with a firewall or reverse-proxy ACL.
+
+## HTTP vs HTTPS
+
+The SMP specification requires that the public SMP URL be reachable over HTTP (for some older clients) and/or HTTPS. For the management UI and write API, HTTPS is strongly recommended. Configure the public URL via:
+
+```properties
+smp.publicurl = https://smp.example.org
+```
+
+If phoss SMP is running behind a reverse proxy that terminates TLS, set:
+
+```properties
+smp.forceroot = true
+smp.publicurl.mode = x-forwarded-header   # or: forwarded-header
+```

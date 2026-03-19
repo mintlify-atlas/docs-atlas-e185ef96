@@ -1,0 +1,238 @@
+---
+title: 'BDXR service metadata'
+description: 'OASIS BDXR SMP 1.0 and 2.0 endpoints for reading, creating, and deleting service metadata.'
+---
+
+Service metadata in the BDXR variants uses a different XML structure from Peppol SMP. The URL paths are the same; the namespace and element names differ.
+
+---
+
+## GET `/{ServiceGroupId}/services/{DocumentTypeId}` — BDXR 1.0
+
+Returns signed service metadata for the given participant and document type using the BDXR 1.0 namespace.
+
+**Authentication:** Not required.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<ParamField path="DocumentTypeId" type="string" required>
+  The document type identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl 'https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23...'
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <SignedServiceMetadata xmlns="http://docs.oasis-open.org/bdxr/ns/SMP/1/ServiceMetadata">
+      <ServiceMetadata>
+        <ServiceInformation>
+          <ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060210000007</ParticipantIdentifier>
+          <DocumentIdentifier scheme="busdox-docid-qns">urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##...</DocumentIdentifier>
+          <ProcessList>
+            <Process>
+              <ProcessIdentifier scheme="cenbii-procid-ubl">urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</ProcessIdentifier>
+              <ServiceEndpointList>
+                <Endpoint transportProfile="peppol-transport-as4-v2_0">
+                  <EndpointURI>https://ap.example.org/as4</EndpointURI>
+                  <RequireBusinessLevelSignature>false</RequireBusinessLevelSignature>
+                  <ServiceActivationDate>2024-01-01</ServiceActivationDate>
+                  <ServiceExpirationDate>2026-12-31</ServiceExpirationDate>
+                  <Certificate>MIIBkTCB+wIJ...</Certificate>
+                  <ServiceDescription>Peppol BIS Billing 3.0</ServiceDescription>
+                  <TechnicalContactUrl>mailto:ap-admin@example.org</TechnicalContactUrl>
+                </Endpoint>
+              </ServiceEndpointList>
+            </Process>
+          </ProcessList>
+        </ServiceInformation>
+      </ServiceMetadata>
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <!-- XML-DSig signature -->
+      </Signature>
+    </SignedServiceMetadata>
+    ```
+  </Tab>
+</Tabs>
+
+### Key difference from Peppol SMP
+
+In BDXR 1.0, the endpoint address uses an `<EndpointURI>` element instead of the Peppol SMP `<EndpointReference><Address>` W3C addressing structure.
+
+---
+
+## GET `/bdxr-smp-2/{ServiceGroupId}/services/{DocumentTypeId}` — BDXR 2.0
+
+Returns service metadata for the given participant and document type using the BDXR 2.0 namespace. Responses are **not signed**.
+
+**Authentication:** Not required.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<ParamField path="DocumentTypeId" type="string" required>
+  The document type identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl 'https://smp.example.org/bdxr-smp-2/iso6523-actorid-upis%3A%3A0088%3A5060210000007/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23...'
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceMetadata xmlns="http://docs.oasis-open.org/bdxr/ns/SMP/2/ServiceMetadata">
+      <ID>busdox-docid-qns::urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##...</ID>
+      <ParticipantID schemeID="iso6523-actorid-upis">0088:5060210000007</ParticipantID>
+      <ProcessMetadata>
+        <Process>
+          <ID schemeID="cenbii-procid-ubl">urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</ID>
+        </Process>
+        <Endpoint transportProfile="peppol-transport-as4-v2_0">
+          <EndpointURI>https://ap.example.org/as4</EndpointURI>
+          <ActivationDate>2024-01-01</ActivationDate>
+          <ExpirationDate>2026-12-31</ExpirationDate>
+          <Certificate>MIIBkTCB+wIJ...</Certificate>
+          <Description>Peppol BIS Billing 3.0</Description>
+          <Contact>mailto:ap-admin@example.org</Contact>
+        </Endpoint>
+      </ProcessMetadata>
+    </ServiceMetadata>
+    ```
+  </Tab>
+</Tabs>
+
+### BDXR 2.0 structural differences
+
+| BDXR 1.0 / Peppol SMP | BDXR 2.0 |
+|-----------------------|----------|
+| `SignedServiceMetadata` (signed) | `ServiceMetadata` (unsigned) |
+| `ParticipantIdentifier` with `scheme` attribute | `ParticipantID` with `schemeID` attribute |
+| `ServiceInformation > ProcessList > Process > ProcessIdentifier` | `ProcessMetadata > Process > ID` with `schemeID` attribute |
+| `ServiceEndpointList > Endpoint` | `ProcessMetadata > Endpoint` |
+| `ServiceActivationDate` / `ServiceExpirationDate` | `ActivationDate` / `ExpirationDate` |
+| `ServiceDescription` | `Description` |
+| `TechnicalContactUrl` | `Contact` |
+| W3C `EndpointReference/Address` (Peppol) or `EndpointURI` (BDXR 1.0) | `EndpointURI` |
+
+---
+
+## PUT `/{ServiceGroupId}/services/{DocumentTypeId}`
+
+Creates or replaces service metadata. The request body must use the namespace matching the configured `smp.rest.type`.
+
+**Authentication:** Required. See [Authentication](/api/authentication).
+
+<Tabs>
+  <Tab title="BDXR 1.0 request body">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceMetadata xmlns="http://docs.oasis-open.org/bdxr/ns/SMP/1/ServiceMetadata">
+      <ServiceInformation>
+        <ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060210000007</ParticipantIdentifier>
+        <DocumentIdentifier scheme="busdox-docid-qns">urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##...</DocumentIdentifier>
+        <ProcessList>
+          <Process>
+            <ProcessIdentifier scheme="cenbii-procid-ubl">urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</ProcessIdentifier>
+            <ServiceEndpointList>
+              <Endpoint transportProfile="peppol-transport-as4-v2_0">
+                <EndpointURI>https://ap.example.org/as4</EndpointURI>
+                <RequireBusinessLevelSignature>false</RequireBusinessLevelSignature>
+                <ServiceActivationDate>2024-01-01</ServiceActivationDate>
+                <ServiceExpirationDate>2026-12-31</ServiceExpirationDate>
+                <Certificate>MIIBkTCB+wIJ...</Certificate>
+                <ServiceDescription>Peppol BIS Billing 3.0</ServiceDescription>
+                <TechnicalContactUrl>mailto:ap-admin@example.org</TechnicalContactUrl>
+              </Endpoint>
+            </ServiceEndpointList>
+          </Process>
+        </ProcessList>
+      </ServiceInformation>
+    </ServiceMetadata>
+    ```
+  </Tab>
+  <Tab title="BDXR 2.0 request body">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ServiceMetadata xmlns="http://docs.oasis-open.org/bdxr/ns/SMP/2/ServiceMetadata">
+      <ID>busdox-docid-qns::urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##...</ID>
+      <ParticipantID schemeID="iso6523-actorid-upis">0088:5060210000007</ParticipantID>
+      <ProcessMetadata>
+        <Process>
+          <ID schemeID="cenbii-procid-ubl">urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</ID>
+        </Process>
+        <Endpoint transportProfile="peppol-transport-as4-v2_0">
+          <EndpointURI>https://ap.example.org/as4</EndpointURI>
+          <ActivationDate>2024-01-01</ActivationDate>
+          <ExpirationDate>2026-12-31</ExpirationDate>
+          <Certificate>MIIBkTCB+wIJ...</Certificate>
+          <Description>Peppol BIS Billing 3.0</Description>
+          <Contact>mailto:ap-admin@example.org</Contact>
+        </Endpoint>
+      </ProcessMetadata>
+    </ServiceMetadata>
+    ```
+  </Tab>
+  <Tab title="curl example">
+    ```bash
+    curl -X PUT \
+      'https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23...' \
+      -u admin@helger.com:password \
+      -H "Content-Type: application/xml" \
+      --data-binary @bdxr-service-metadata.xml
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+Returns `HTTP 200 OK` with an empty body on success.
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Identifier mismatch or malformed input |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | Service group does not exist |
+
+---
+
+## DELETE `/{ServiceGroupId}/services/{DocumentTypeId}`
+
+Deletes service metadata for the given participant and document type. This endpoint is the same for BDXR 1.0 and 2.0.
+
+**Authentication:** Required. See [Authentication](/api/authentication).
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl -X DELETE \
+      'https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/services/busdox-docid-qns%3A%3Aurn%3Aoasis%3Anames%3Aspecification%3Aubl%3Aschema%3Axsd%3AInvoice-2%3A%3AInvoice%23%23...' \
+      -u admin@helger.com:password
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+Returns `HTTP 200 OK` on success.
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Identifier cannot be parsed |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | Service group or service metadata not found |

@@ -1,0 +1,75 @@
+---
+title: 'Configuration overview'
+description: 'How phoss SMP is configured, where files live, and a reference of the most important properties.'
+---
+
+phoss SMP is configured through a single Java properties file. Every deployable WAR module ships a default file. You override individual properties for your environment without editing the committed defaults.
+
+## Configuration file location
+
+Each webapp module contains its own default file:
+
+```
+phoss-smp-webapp-xml/src/main/resources/application.properties
+phoss-smp-webapp-sql/src/main/resources/application.properties
+phoss-smp-webapp-mongodb/src/main/resources/application.properties
+```
+
+### Local overrides
+
+Place a `private-application.properties` file alongside `application.properties`. This file is gitignored and its values take precedence over the defaults. Use this during development so you never accidentally commit passwords or local paths.
+
+### Production deployments
+
+Point the application at an external file using the JVM system property:
+
+```bash
+java -Dconfig.file=/etc/smp/application.properties -jar smp.war
+```
+
+For Docker deployments, set the `CONFIG_FILE` environment variable instead:
+
+```bash
+docker run -e CONFIG_FILE=/config/application.properties ...
+```
+
+<Note>
+Properties in the external file completely replace the bundled defaults for any key that is present. Keys not present in your file continue to use the bundled defaults.
+</Note>
+
+## Global flags
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `global.debug` | `false` | Enable verbose debug logging. Set to `false` in production. |
+| `global.production` | `false` | Mark the instance as a production deployment. Affects certain safety checks. |
+| `global.debugjaxws` | `false` | Enable JAX-WS debug output. Development only. |
+| `webapp.datapath` | `generated` | Directory for persistent data files. Use an absolute path in production. |
+| `webapp.testversion` | `true` | Show a "test version" banner in the UI. Set to `false` in production. |
+| `webapp.checkfileaccess` | `false` | Verify all data files are readable at startup. Only needed with relative data paths. |
+
+<Warning>
+For production, always set `global.debug = false`, `global.production = true`, and `webapp.testversion = false`.
+</Warning>
+
+## Backend selection
+
+The `smp.backend` property selects which storage backend the server uses:
+
+```properties
+# xml, sql, or mongodb
+smp.backend = sql
+```
+
+See [Backends](/configuration/backends) for the full list of backend-specific properties.
+
+## Configuration categories
+
+| Category | Property prefix | Page |
+|----------|----------------|------|
+| Backend and identifiers | `smp.backend`, `smp.identifiertype`, `smp.rest.*` | [Backends](/configuration/backends) |
+| PKI and keystores | `smp.keystore.*`, `smp.truststore.*`, `pdclient.*`, `smpclient.*` | [Keystore and PKI](/configuration/keystore-pki) |
+| SML integration | `sml.*` | [SML integration](/configuration/sml-integration) |
+| Peppol Directory | `smp.directory.*`, `webapp.directory.*` | [Directory integration](/configuration/directory-integration) |
+| Reverse proxy and URLs | `smp.forceroot`, `smp.publicurl*` | [Reverse proxy](/configuration/reverse-proxy) |
+| Security hardening | `csp.*`, `webapp.security.*`, `smp.status.*` | [Security](/configuration/security) |

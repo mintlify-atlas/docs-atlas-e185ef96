@@ -1,0 +1,179 @@
+---
+title: Management UI
+description: Guide to the phoss SMP web-based management interface at /secure/.
+---
+
+phoss SMP ships with a browser-based management UI served from two path prefixes:
+
+| Prefix | Servlet | Description |
+|--------|---------|-------------|
+| `/secure/` | `SecureApplicationServlet` | Authenticated administration |
+| `/public/` | `PublicApplicationServlet` | Unauthenticated participant list and server info |
+
+## Accessing the management UI
+
+Open `http://<your-smp-host>/secure/` in a browser. You will be redirected to the login page if no active session exists.
+
+### Default credentials
+
+<Warning>
+Change the default password immediately after the first login. Leaving the default credentials in place on a production system is a critical security risk.
+</Warning>
+
+| Field | Value |
+|-------|-------|
+| Email | `admin@helger.com` |
+| Password | `password` |
+
+### Login error details
+
+By default the login page reveals whether the email address or the password was incorrect. Disable this detail in production:
+
+```properties
+webapp.security.login.errordetails = false
+```
+
+## Public pages
+
+The `/public/` prefix exposes read-only information without authentication:
+
+- **Participant list** — lists all registered service groups (participants). Can be hidden in production with `webapp.startpage.participants.none = true`.
+- **Server information** — application name, version, and author. Controlled by `webapp.public.showappname`, `webapp.public.showsource`, and `webapp.public.showauthor`.
+
+## Startup / landing page
+
+After login you land on the secure home page (`/secure/`). It displays a summary grid with quick-links to the four main data sections:
+
+- Service Groups (with sub-pages)
+- Endpoints (with sub-pages)
+- Redirects
+- Business Cards
+
+### Extension data visibility
+
+SMP extension XML is hidden by default to avoid cluttering the UI. Enable it per section:
+
+```properties
+# Show extension XML on the startup/participant-list page
+webapp.startpage.extensions.show = false
+
+# Show extension XML inside service group detail pages
+webapp.servicegroups.extensions.show = false
+```
+
+Set either value to `true` to render the raw extension payload inline.
+
+## Management sections
+
+### Service Groups
+
+Path: **Service Groups** in the sidebar (menu ID `service_groups`).
+
+A Service Group represents a single participant, identified by a Peppol or BDXR participant identifier. From this section you can:
+
+- **Create** a new participant registration.
+- **View** the list of all registered participants and navigate into each one.
+- **Delete** a participant registration (and all its service metadata).
+- **Export** the full service group data to XML.
+- **Import** service groups from a previously exported XML file.
+- **Migrate outbound / inbound** — move service groups between SMP instances.
+
+### Service Information (Endpoints)
+
+Path: **Endpoints** in the sidebar (menu IDs `endpoint_list`, `endpoint_tree`).
+
+Configures document type routing for a service group. Each entry specifies:
+
+- The document type identifier
+- The process identifier
+- The transport profile
+- The Access Point endpoint URL and certificate
+- Validity dates
+
+Additional bulk-edit helpers are available under **Endpoints**:
+
+- **Change URL** (`endpoints_change_url`) — update the AP URL across many entries at once.
+- **Change Certificate** (`endpoints_change_certificate`) — swap the AP certificate in bulk.
+
+### Redirects
+
+Path: **Redirects** in the sidebar (menu ID `redirects`).
+
+An SMP redirect points a specific document type for a participant to a different SMP server. Create, view, and delete redirect entries here.
+
+### Business Cards
+
+Path: **Business Cards** in the sidebar (menu ID `business_cards`).
+
+Manages Peppol Directory business card data for each participant. A business card holds human-readable organisation information (name, country, contact). When Directory integration is enabled (`smp.directory.integration.enabled = true`), changes can be pushed automatically.
+
+### Transport Profiles
+
+Path: **Transport Profiles** in the sidebar (menu ID `transport_profiles`).
+
+Lists and manages the set of transport profiles supported by this SMP. The default Peppol AS4 profile ID is `peppol-transport-as4-v2_0`.
+
+### Certificate Information
+
+Path: **Certificate Information** (menu ID `certificate_information`).
+
+Displays the currently loaded SMP keystore certificate — issuer, subject, validity dates, and whether the certificate has expired.
+
+### Tasks / Problems
+
+Path: **Tasks** (menu ID `tasks`).
+
+Highlights configuration issues and pending actions detected at startup or during runtime.
+
+### Settings
+
+Path: **Administration > SMP Settings** (menu ID `smp_settings`).
+
+The SMP-wide settings page lets you adjust runtime behaviour without redeploying:
+
+- Enable/disable the writable REST API
+- Enable/disable SML registration
+- Choose the SML environment
+- Enable/disable Peppol Directory integration and auto-update
+
+Path: **Administration > SMP Configuration** (menu ID `smp_configuration`).
+
+Displays the current configuration properties as read from `application.properties`.
+
+Path: **Administration > Identifier Mappings** (menu ID `smp_id_mappings`).
+
+Shows the active identifier scheme mappings.
+
+### Users
+
+Path: **Administration > Security** (part of the `admin` menu group).
+
+From here you can:
+
+- List and manage admin user accounts.
+- Change your own password (**Change Password**, menu ID `change_pw`).
+- Create and revoke **User Tokens** used for Bearer token authentication (see [Authentication](/operations/authentication)).
+
+## Nice name mappings
+
+By default, document type and process identifiers are displayed as raw strings. You can provide human-readable name mappings via XML files:
+
+```properties
+# Path to doc-type nice-name XML
+webapp.nicename.doctypes.path = /etc/smp/nicenames/doctypes.xml
+
+# Path to process nice-name XML
+webapp.nicename.processes.path = /etc/smp/nicenames/processes.xml
+```
+
+When configured, the UI resolves identifiers to their friendly names throughout the Service Information and Endpoint pages.
+
+## Dynamic participant table
+
+The start page participant list can optionally render as a dynamic (paginated, searchable) table at the cost of a slower page load:
+
+```properties
+webapp.startpage.dynamictable = false
+```
+
+Leave this `false` for instances with large numbers of participants.

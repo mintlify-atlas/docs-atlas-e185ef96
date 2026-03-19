@@ -1,0 +1,172 @@
+---
+title: Migrations
+description: How to upgrade phoss SMP across versions, including database schema migrations and configuration changes.
+---
+
+## General upgrade process
+
+<Steps>
+  <Step title="Read the release notes and migrations wiki">
+    Before upgrading, check the [phoss SMP Migrations wiki page](https://github.com/phax/phoss-smp/wiki/Migrations) for version-specific actions. Some releases require manual steps that cannot be automated.
+  </Step>
+  <Step title="Back up your data">
+    - **XML backend**: copy the entire `webapp.datapath` directory.
+    - **SQL backend**: take a full database dump.
+    - **MongoDB backend**: use `mongodump`.
+    - Also back up your `application.properties` and keystore files.
+  </Step>
+  <Step title="Stop the running instance">
+    Shut down Tomcat or the Docker container before swapping the WAR/image.
+  </Step>
+  <Step title="Deploy the new version">
+    Replace the WAR file in `$CATALINA_HOME/webapps/` or pull and restart the new Docker image (see [Docker upgrade](#docker-image-upgrade)).
+  </Step>
+  <Step title="Apply any configuration changes">
+    Compare your `application.properties` against the new default configuration. New properties added in the release will use their built-in defaults unless you explicitly set them.
+  </Step>
+  <Step title="Start and verify">
+    Start the server and check the logs for errors. Confirm the management UI loads and the `/ping/` endpoint returns HTTP 200.
+  </Step>
+</Steps>
+
+## Database schema migrations (SQL backend)
+
+The SQL backend uses **Flyway 12** to manage schema versioning. Migration scripts live in:
+
+```
+phoss-smp-backend-sql/src/main/resources/db/migrate-{mysql,postgresql,oracle,db2}/
+```
+
+Migrations run **automatically on startup** — no manual SQL execution is needed. Flyway compares the current schema version with the bundled scripts and applies any that are missing.
+
+<Note>
+Flyway requires that the database user has `ALTER TABLE`, `CREATE TABLE`, and `CREATE INDEX` privileges in addition to the usual DML privileges.
+</Note>
+
+### Notable SQL migration
+
+The migration ID `sql.db-users-to-regular-users` (defined in `CSMPServerMigrations`) handles the one-time transition from the legacy database-level user model to the regular phoss SMP user model. This migration runs automatically the first time you start a version that includes it.
+
+## XML backend
+
+XML data files are forward-compatible across minor and patch versions. No schema migration is required when upgrading between patch releases.
+
+For major version upgrades, the startup code applies any necessary in-place migrations to the XML files automatically. Check the Migrations wiki to confirm whether a specific major upgrade requires manual steps.
+
+## MongoDB backend
+
+MongoDB collections are schema-less. Structural changes are handled by the startup code at runtime. No manual migration steps are required for most upgrades. Check the Migrations wiki for any exceptions.
+
+## Docker image upgrade
+
+<Steps>
+  <Step title="Pull the new image">
+    ```bash
+    docker pull phelger/phoss-smp-xml:latest
+    # or for SQL:
+    docker pull phelger/phoss-smp-sql:latest
+    ```
+  </Step>
+  <Step title="Stop and remove the old container">
+    ```bash
+    docker stop phoss-smp
+    docker rm phoss-smp
+    ```
+  </Step>
+  <Step title="Start a new container with the same volumes and config">
+    ```bash
+    docker run -d \
+      --name phoss-smp \
+      -p 80:8080 \
+      -v /etc/smp/config:/config \
+      phelger/phoss-smp-xml:latest
+    ```
+
+    Your `application.properties`, keystore, and data directory are preserved via the mounted volume.
+  </Step>
+  <Step title="Verify startup">
+    ```bash
+    docker logs -f phoss-smp
+    ```
+
+    Watch for `INFO` startup messages and the absence of `ERROR` entries. Confirm with:
+
+    ```bash
+    curl -f http://localhost/ping/
+    ```
+  </Step>
+</Steps>
+
+## Key breaking changes in recent versions
+
+### v8.0 — Java 17 requirement
+
+Starting with v8.0, phoss SMP **requires Java 17 or later**. Java 11 is no longer supported.
+
+Verify your JVM before upgrading:
+
+```bash
+java -version
+```
+
+The output must show version 17 or higher. Update your container base image or JDK installation if needed.
+
+### v6.0.7 — Bearer token authentication
+
+v6.0.7 introduced **Bearer token** authentication as the preferred method for REST API calls. Existing Basic Auth integrations continue to work without any changes, but new integrations should use tokens created under **Administration > Security > User Tokens**.
+
+See [Authentication](/operations/authentication) for details.
+
+## Configuration file changes between versions
+
+New properties are added periodically. Check the default `application.properties` in the new WAR (or the `phoss-smp-webapp-xml`, `phoss-smp-webapp-sql`, or `phoss-smp-webapp-mongodb` module) against your deployed file.
+
+The safest approach is to diff your running configuration against the default:
+
+```bash
+diff application.properties.new application.properties.current
+```
+
+Properties that are missing from your file will use their default values, but it is good practice to review them explicitly.
+
+### Notable property additions
+
+| Version | Property | Default | Description |
+|---------|----------|---------|-------------|
+| v8.0.11 | `jdbc.pooling.max-connections` | `8` | DBCP2 max pool size |
+| v8.0.11 | `jdbc.pooling.max-wait.millis` | `10000` | DBCP2 max borrow wait |
+| v8.0.6 | `smp.rest-remote-query-api.enabled` | `false` | Remote Query API toggle |
+| v8.0.2 | `smp.publicurl.mode` | `request` | Public URL detection strategy |
+| v5.7.0 | `webapp.nicename.doctypes.path` | — | Doc type nice-name XML path |
+| v5.7.0 | `webapp.nicename.processes.path` | — | Process nice-name XML path |
+| v5.2.0 | `smp.rest.log.exceptions` | `false` | Log REST exceptions |
+
+## Backup recommendations
+
+<Warning>
+Always take a backup immediately before upgrading. Even automatic migrations are irreversible without a backup if something goes wrong.
+</Warning>
+
+### XML backend
+
+```bash
+# Backup the entire data directory
+tar -czf smp-data-backup-$(date +%Y%m%d).tar.gz /var/smp/
+```
+
+### SQL backend
+
+```bash
+# MySQL example
+mysqldump -u smp -p smp > smp-backup-$(date +%Y%m%d).sql
+
+# PostgreSQL example
+pg_dump -U smp smp > smp-backup-$(date +%Y%m%d).sql
+```
+
+### Configuration files
+
+```bash
+cp application.properties application.properties.bak
+cp keystore/smp.p12 keystore/smp.p12.bak
+```

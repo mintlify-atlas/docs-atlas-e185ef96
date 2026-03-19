@@ -1,0 +1,240 @@
+---
+title: 'Implementing a custom storage backend'
+description: 'Build and register a custom storage backend for phoss SMP using the ServiceLoader SPI, implementing ISMPManagerProvider and ISMPBackendRegistrarSPI.'
+---
+
+phoss SMP uses a plugin system based on Java `ServiceLoader` to select the active storage backend at runtime. The built-in backends (`xml`, `sql`, `mongodb`) all follow the same pattern. You can implement your own backend to persist SMP data in any storage system.
+
+## Architecture overview
+
+Each backend module provides two things:
+
+1. **`ISMPManagerProvider`** — a factory that creates manager instances for each domain entity (service groups, service metadata, redirects, business cards, etc.)
+2. **`ISMPBackendRegistrarSPI`** — an SPI implementation that registers the backend under a unique string ID
+
+At startup, phoss SMP uses `ServiceLoader` to discover all `ISMPBackendRegistrarSPI` implementations on the classpath. It then activates the backend whose ID matches `smp.backend` in `application.properties`.
+
+```
+Classpath scan (ServiceLoader)
+  └── ISMPBackendRegistrarSPI.registerSMPBackend(registry)
+        └── registry.registerSMPBackend("my-backend", MyManagerProvider::new)
+
+Startup: smp.backend = my-backend
+  └── MyManagerProvider created
+        └── createServiceGroupMgr(), createRedirectMgr(), … called
+```
+
+## Step 1: Create a Maven backend project
+
+Create a Maven module with `phoss-smp-backend` as a compile dependency:
+
+```xml
+<dependency>
+  <groupId>com.helger</groupId>
+  <artifactId>phoss-smp-backend</artifactId>
+  <version>8.1.3</version>
+</dependency>
+```
+
+Recommended package structure (mirroring the XML backend):
+
+```
+my-smp-backend/
+├── src/main/java/com/example/smp/backend/
+│   ├── mgr/
+│   │   └── MyManagerProvider.java
+│   └── spi/
+│       └── MySMPBackendRegistrarSPI.java
+└── src/main/resources/META-INF/services/
+    └── com.helger.phoss.smp.backend.ISMPBackendRegistrarSPI
+```
+
+## Step 2: Implement `ISMPManagerProvider`
+
+`ISMPManagerProvider` is the factory interface that phoss SMP calls to obtain manager instances for every domain entity:
+
+```java
+package com.example.smp.backend.mgr;
+
+import com.helger.base.state.ETriState;
+import com.helger.peppolid.factory.IIdentifierFactory;
+import com.helger.phoss.smp.domain.ISMPManagerProvider;
+import com.helger.phoss.smp.domain.businesscard.ISMPBusinessCardManager;
+import com.helger.phoss.smp.domain.pmigration.ISMPParticipantMigrationManager;
+import com.helger.phoss.smp.domain.redirect.ISMPRedirectManager;
+import com.helger.phoss.smp.domain.servicegroup.ISMPServiceGroupManager;
+import com.helger.phoss.smp.domain.serviceinfo.ISMPServiceInformationManager;
+import com.helger.phoss.smp.domain.sml.ISMLInfoManager;
+import com.helger.phoss.smp.domain.transportprofile.ISMPTransportProfileManager;
+import com.helger.phoss.smp.settings.ISMPSettingsManager;
+
+public final class MyManagerProvider implements ISMPManagerProvider
+{
+  @Override
+  public ETriState getBackendConnectionEstablishedDefaultState ()
+  {
+    // Return TRUE for file-based backends, UNDEFINED for database backends
+    // (UNDEFINED means connectivity is checked at runtime)
+    return ETriState.UNDEFINED;
+  }
+
+  @Override
+  public ISMLInfoManager createSMLInfoMgr () { /* ... */ }
+
+  @Override
+  public ISMPSettingsManager createSettingsMgr () { /* ... */ }
+
+  @Override
+  public ISMPTransportProfileManager createTransportProfileMgr () { /* ... */ }
+
+  @Override
+  public ISMPServiceGroupManager createServiceGroupMgr () { /* ... */ }
+
+  @Override
+  public ISMPRedirectManager createRedirectMgr (IIdentifierFactory aIdentifierFactory) { /* ... */ }
+
+  @Override
+  public ISMPServiceInformationManager createServiceInformationMgr (IIdentifierFactory aIdentifierFactory) { /* ... */ }
+
+  @Override
+  public ISMPParticipantMigrationManager createParticipantMigrationMgr () { /* ... */ }
+
+  @Override
+  public ISMPBusinessCardManager createBusinessCardMgr (IIdentifierFactory aIdentifierFactory,
+                                                        ISMPServiceGroupManager aServiceGroupMgr)
+  {
+    // Return null if your backend does not support business cards
+    return null;
+  }
+}
+```
+
+### Manager interfaces to implement
+
+All interfaces are in `com.helger.phoss.smp.domain.*` within the `phoss-smp-backend` module:
+
+| Factory method | Interface | Purpose |
+|---------------|-----------|--------|
+| `createSMLInfoMgr()` | `ISMLInfoManager` | SML configuration entries |
+| `createSettingsMgr()` | `ISMPSettingsManager` | SMP-wide settings |
+| `createTransportProfileMgr()` | `ISMPTransportProfileManager` | Registered transport profiles |
+| `createServiceGroupMgr()` | `ISMPServiceGroupManager` | Participant service groups |
+| `createRedirectMgr(…)` | `ISMPRedirectManager` | Redirects to other SMPs |
+| `createServiceInformationMgr(…)` | `ISMPServiceInformationManager` | Document type / endpoint metadata |
+| `createParticipantMigrationMgr()` | `ISMPParticipantMigrationManager` | Participant migration records |
+| `createBusinessCardMgr(…)` | `ISMPBusinessCardManager` | Peppol Directory business cards (may return `null`) |
+
+<Tip>
+The XML backend (`SMPManagerProviderXML`) is the simplest reference implementation. Read it in `phoss-smp-backend-xml` to understand the expected behaviour of each manager method.
+</Tip>
+
+## Step 3: Implement `ISMPBackendRegistrarSPI`
+
+This class registers your `ISMPManagerProvider` factory under a unique backend ID:
+
+```java
+package com.example.smp.backend.spi;
+
+import com.helger.annotation.style.IsSPIImplementation;
+import com.helger.phoss.smp.backend.ISMPBackendRegistrarSPI;
+import com.helger.phoss.smp.backend.ISMPBackendRegistry;
+import com.example.smp.backend.mgr.MyManagerProvider;
+
+@IsSPIImplementation
+public final class MySMPBackendRegistrarSPI implements ISMPBackendRegistrarSPI
+{
+  public static final String BACKEND_ID = "my-backend";
+
+  @Override
+  public void registerSMPBackend (final ISMPBackendRegistry aRegistry)
+  {
+    aRegistry.registerSMPBackend (BACKEND_ID, MyManagerProvider::new);
+  }
+}
+```
+
+Choose a backend ID that is unique and does not conflict with the built-in IDs: `xml`, `sql`, `mongodb`.
+
+## Step 4: Register the SPI
+
+Create the file `src/main/resources/META-INF/services/com.helger.phoss.smp.backend.ISMPBackendRegistrarSPI` containing the fully-qualified class name of your registrar:
+
+```
+com.example.smp.backend.spi.MySMPBackendRegistrarSPI
+```
+
+This is the standard Java `ServiceLoader` discovery mechanism. The file name must be exactly `com.helger.phoss.smp.backend.ISMPBackendRegistrarSPI` (no extension).
+
+<Info>
+See the XML backend's service file at `phoss-smp-backend-xml/src/main/resources/META-INF/services/com.helger.phoss.smp.backend.ISMPBackendRegistrarSPI` for a concrete example — it contains a single line with the fully-qualified class name.
+</Info>
+
+## Step 5: Create the webapp module
+
+Create a second Maven module that combines the phoss SMP web layer with your backend:
+
+```xml
+<dependencies>
+  <!-- phoss SMP web layer -->
+  <dependency>
+    <groupId>com.helger</groupId>
+    <artifactId>phoss-smp-webapp</artifactId>
+    <version>8.1.3</version>
+  </dependency>
+
+  <!-- Your backend -->
+  <dependency>
+    <groupId>com.example</groupId>
+    <artifactId>my-smp-backend</artifactId>
+    <version>1.0.0</version>
+  </dependency>
+</dependencies>
+
+<packaging>war</packaging>
+```
+
+Copy `application.properties` from `phoss-smp-webapp-xml` as a starting point and place it in `src/main/resources/`.
+
+## Step 6: Set `smp.backend` in configuration
+
+In `application.properties`, set the backend to your registered ID:
+
+```properties
+smp.backend = my-backend
+```
+
+All other properties (`smp.keystore.*`, `smp.identifiertype`, etc.) work the same regardless of which backend is active.
+
+## Lifecycle hooks
+
+`ISMPManagerProvider` provides two optional lifecycle callbacks:
+
+```java
+@Override
+public void beforeInitManagers ()
+{
+  // Called before any createXxx() method — open connections here
+}
+
+@Override
+public void afterInitManagers ()
+{
+  // Called after all managers are initialised — register listeners etc.
+}
+```
+
+## Testing your backend
+
+Run phoss SMP locally using Jetty during development. Place connection settings in `private-application.properties` (gitignored) to avoid committing secrets:
+
+```properties
+# private-application.properties
+smp.backend    = my-backend
+my.backend.url = http://localhost:1234/
+```
+
+Default local URL: `http://localhost:90`. Default credentials: `admin@helger.com` / `password`.
+
+<Warning>
+Do not run in production with `global.debug = true`. Debug mode enables verbose logging and disables some security checks.
+</Warning>

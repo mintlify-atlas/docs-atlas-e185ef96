@@ -1,0 +1,120 @@
+---
+title: 'API overview'
+description: 'Reference for the phoss SMP REST API — Peppol SMP 1.x, OASIS BDXR SMP 1.0, and OASIS BDXR SMP 2.0.'
+---
+
+phoss SMP exposes a standards-based REST API for reading and managing SMP data. Three protocol variants share the same URL paths but use different XML namespaces:
+
+| Variant | Config value | XML namespace |
+|---------|-------------|---------------|
+| Peppol SMP 1.x | `smp.rest.type = peppol` | `http://busdox.org/serviceMetadata/publishing/1.0/` |
+| OASIS BDXR SMP 1.0 | `smp.rest.type = bdxr` | `http://docs.oasis-open.org/bdxr/ns/SMP/1/ServiceMetadata` |
+| OASIS BDXR SMP 2.0 | `smp.rest.type = bdxr` (with BDXR2 path prefix) | `http://docs.oasis-open.org/bdxr/ns/SMP/2/ServiceMetadata` |
+
+The active variant is controlled by the `smp.rest.type` property in `application.properties`. Peppol SMP 1.x is the default.
+
+<Note>
+BDXR SMP 2.0 endpoints are served under the `/bdxr-smp-2/` path prefix for GET requests. PUT and DELETE write endpoints use the same paths as Peppol SMP.
+</Note>
+
+## Base URL
+
+All endpoints are relative to your SMP server's public URL:
+
+```
+https://smp.example.org
+```
+
+Configure the public URL with:
+
+```properties
+smp.publicurl = https://smp.example.org
+```
+
+## Endpoints summary
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/{ServiceGroupId}` | No | Get service group and document type list |
+| `PUT` | `/{ServiceGroupId}` | Yes | Create or update a service group |
+| `DELETE` | `/{ServiceGroupId}` | Yes | Delete a service group and all its metadata |
+| `GET` | `/{ServiceGroupId}/services/{DocumentTypeId}` | No | Get service metadata (endpoints) for a document type |
+| `PUT` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Create or update service metadata |
+| `DELETE` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Delete service metadata for a document type |
+| `GET` | `/businesscard/{ServiceGroupId}` | No | Get business card |
+| `PUT` | `/businesscard/{ServiceGroupId}` | Yes | Create or update business card |
+| `DELETE` | `/businesscard/{ServiceGroupId}` | Yes | Delete business card |
+| `POST` | `/businesscard/{ServiceGroupId}/push` | Yes | Push business card to Peppol Directory |
+| `GET` | `/smp-status/` | No | Health and status information (disabled by default) |
+| `GET` | `/ping/` | No | Liveness probe |
+
+## Identifier formats
+
+### Participant identifier (ServiceGroupId)
+
+Participant identifiers use the format `scheme::value` where scheme and value are separated by a double colon:
+
+```
+iso6523-actorid-upis::0088:5060210000007
+```
+
+When used in a URL path, the `::` separator and any `/` characters within the identifier must be URL-encoded:
+
+```
+iso6523-actorid-upis%3A%3A0088%3A5060210000007
+```
+
+<Warning>
+Tomcat requires additional configuration to allow encoded slashes (`%2F`) in URLs. Add `encodedSolidusHandling="decode"` to the Connector element in `server.xml`. For Tomcat versions below 10, set the JVM property `org.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true`.
+</Warning>
+
+### Document type identifier (DocumentTypeId)
+
+Document type identifiers also use the `scheme::value` format:
+
+```
+busdox-docid-qns::urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1
+```
+
+## Content types
+
+All endpoints that accept a request body expect `application/xml` or `text/xml`. All endpoints that return a body respond with `application/xml`.
+
+## HTTP status codes
+
+| Code | Meaning |
+|------|--------|
+| `200 OK` | Request succeeded |
+| `400 Bad Request` | Malformed identifier or inconsistent payload |
+| `401 Unauthorized` | Missing or invalid credentials |
+| `403 Forbidden` | Authenticated user does not own the service group |
+| `404 Not Found` | Service group, document type, or business card not found |
+| `500 Internal Server Error` | Unexpected server-side error |
+
+## Error responses
+
+Error responses are plain-text HTTP responses with an appropriate status code. The response body contains a human-readable error message. No structured XML error envelope is used.
+
+## Rate limiting
+
+phoss SMP has no built-in rate limiting. If you need rate limiting, configure it at the reverse proxy layer (for example, nginx or Apache).
+
+## API variants in depth
+
+<AccordionGroup>
+  <Accordion title="Peppol SMP 1.x">
+    The default variant. Uses XML types from the `busdox.org` namespace. Responses to GET requests are signed with the SMP's private key using XML-DSig. This is the variant required for connectivity in the Peppol network.
+
+    See [Peppol service groups](/api/peppol/service-groups) and [Peppol service metadata](/api/peppol/service-metadata) for endpoint details.
+  </Accordion>
+  <Accordion title="OASIS BDXR SMP 1.0">
+    The OASIS standardised version of the Peppol SMP specification. Uses the `http://docs.oasis-open.org/bdxr/ns/SMP/1/ServiceMetadata` namespace. Responses to GET requests are also signed.
+
+    See [BDXR service groups](/api/bdxr/service-groups) and [BDXR service metadata](/api/bdxr/service-metadata).
+  </Accordion>
+  <Accordion title="OASIS BDXR SMP 2.0">
+    The newer OASIS version. GET requests for service groups and service metadata use the `/bdxr-smp-2/` path prefix. Uses the `http://docs.oasis-open.org/bdxr/ns/SMP/2/ServiceMetadata` namespace. Responses are unsigned.
+
+    See [BDXR service groups](/api/bdxr/service-groups) and [BDXR service metadata](/api/bdxr/service-metadata).
+  </Accordion>
+</AccordionGroup>

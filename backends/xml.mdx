@@ -1,0 +1,126 @@
+---
+title: 'XML backend'
+description: 'File-based storage backend that persists all SMP data as XML files. No external dependencies required.'
+---
+
+The XML backend is the simplest storage option for phoss SMP. All SMP data is persisted as plain XML files inside the configured data directory. There is no database server to install or manage.
+
+## Selecting the XML backend
+
+Set the following property in `application.properties`:
+
+```properties
+smp.backend = xml
+```
+
+Use the `phoss-smp-webapp-xml` WAR when deploying. This is the only deployable artifact that includes the XML backend.
+
+## Data directory
+
+All XML files are written to the directory specified by `webapp.datapath`:
+
+```properties
+# Use an absolute path in production
+webapp.datapath = /var/smp
+```
+
+<Warning>
+Always use an **absolute path** in production. A relative path is resolved against the application server's working directory, which can change between restarts and may cause data to be written in unexpected locations.
+</Warning>
+
+### File structure
+
+Within `webapp.datapath`, the backend creates the following XML files on first use:
+
+| File | Contents |
+|------|----------|
+| `sml-info.xml` | SML (Service Metadata Locator) endpoint configuration |
+| `smp-settings.xml` | SMP runtime settings |
+| `transportprofiles.xml` | Registered transport profiles |
+| `smp-servicegroup.xml` | All service groups (participants) |
+| `smp-redirect.xml` | Document-type redirects |
+| `smp-serviceinformation.xml` | Service metadata and endpoints |
+| `smp-participant-migration.xml` | Participant migration records |
+| `smp-business-card.xml` | Business card data (Peppol Directory) |
+
+The `security/` subdirectory holds user, role, and user-group XML files managed by the ph-oton framework.
+
+<Note>
+Each file is read into memory on startup and written back atomically on every change. All in-memory state is authoritative at runtime.
+</Note>
+
+## File-access check
+
+The `webapp.checkfileaccess` property controls whether the application verifies that all required files inside the data directory are readable at startup:
+
+```properties
+# Only set to true when datapath is a relative path inside a known WAR structure
+webapp.checkfileaccess = false
+```
+
+Leave this `false` in production when `webapp.datapath` is an absolute path.
+
+## Docker: persisting data with volumes
+
+When running phoss SMP in a Docker container you must mount the data directory as a volume so that XML files survive container restarts.
+
+```bash
+docker run -d \
+  -v /host/path/smp-data:/home/git/conf \
+  -p 8080:8080 \
+  phoss-smp-xml:latest
+```
+
+Alternatively, in a `compose.yml`:
+
+```yaml
+services:
+  smp:
+    image: phoss-smp-xml:latest
+    volumes:
+      - smp-data:/home/git/conf
+    ports:
+      - "8080:8080"
+
+volumes:
+  smp-data:
+```
+
+<Tip>
+Mount the data directory at `/home/git/conf` (the path used in official Docker images) or override `webapp.datapath` in the container's `application.properties` to match your mount point.
+</Tip>
+
+## Advantages
+
+- **No external dependencies.** No database server to install, configure, or maintain.
+- **Simple setup.** A single `webapp.datapath` property is all that is required.
+- **Portable.** Data directory can be copied, backed up, or version-controlled as a set of plain text files.
+- **Ideal for small deployments** with low request rates and few participants.
+
+## Limitations
+
+<Warning>
+The XML backend is **not suitable for high-concurrency or large-scale deployments**. Because each file is loaded fully into memory and written on every mutation, concurrent write operations can become a bottleneck. For production deployments with many participants or high write volumes, consider the [SQL](/backends/sql) or [MongoDB](/backends/mongodb) backend.
+</Warning>
+
+- All data is held in memory; a large number of service groups increases memory usage.
+- No built-in replication or high-availability support.
+- No connection-pool tuning or query optimization is possible.
+
+## Migrating to or from the XML backend
+
+### Exporting from XML
+
+All data lives in the XML files under `webapp.datapath`. Copy these files to a safe location before switching backends.
+
+### Importing into SQL or MongoDB
+
+phoss SMP does not include an automated migration tool. To move data from XML to another backend:
+
+1. Stop the SMP server.
+2. Start the server with the new backend configured.
+3. Re-register all service groups, service metadata, and business cards via the management UI or REST API.
+
+<Info>
+The MongoDB backend performs an automatic one-time migration of the ph-oton security files (users, roles, user groups, user tokens) from XML if it detects an empty collection on first start. SMP-specific data (service groups, redirects, etc.) must be migrated manually.
+</Info>

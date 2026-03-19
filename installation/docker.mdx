@@ -1,0 +1,226 @@
+---
+title: Docker deployment
+description: Run phoss SMP in Docker using the official images for the XML, SQL, or MongoDB backend.
+---
+
+phoss SMP is published to Docker Hub for all three storage backends. This is the fastest way to get a running instance.
+
+## Available images
+
+| Image | Backend | Docker Hub |
+|-------|---------|------------|
+| `phelger/phoss-smp-xml` | XML (file-based) | https://hub.docker.com/r/phelger/phoss-smp-xml |
+| `phelger/phoss-smp-sql` | SQL (MySQL/PostgreSQL/Oracle/DB2) | https://hub.docker.com/r/phelger/phoss-smp-sql |
+| `phelger/phoss-smp-mongodb` | MongoDB | https://hub.docker.com/r/phelger/phoss-smp-mongodb |
+
+All images are based on `tomcat:10.1-jdk21` and expose port **8080** internally.
+
+<Note>
+The legacy `phelger/smp` image contains old XML binary releases and SNAPSHOTs. Use the `phoss-smp-xml` image for current releases.
+</Note>
+
+## Quick start
+
+The fastest way to verify the image works:
+
+<Tabs>
+  <Tab title="XML">
+    ```bash
+    docker run -d --name phoss-smp -p 8888:8080 phelger/phoss-smp-xml:latest
+    ```
+  </Tab>
+  <Tab title="SQL">
+    ```bash
+    docker run -d --name phoss-smp -p 8888:8080 phelger/phoss-smp-sql:latest
+    ```
+  </Tab>
+  <Tab title="MongoDB">
+    ```bash
+    docker run -d --name phoss-smp -p 8888:8080 phelger/phoss-smp-mongodb:latest
+    ```
+  </Tab>
+</Tabs>
+
+Open `http://localhost:8888` in your browser after the container starts.
+
+<Warning>
+The images ship with no `application.properties` file. Without configuration the SMP cannot register with the SML or sign responses. Always supply a configuration before connecting to production infrastructure.
+</Warning>
+
+## Production deployment
+
+<Steps>
+  <Step title="Create a configuration directory">
+    Create a local directory to hold `application.properties` and your keystore file:
+
+    ```bash
+    mkdir -p /opt/phoss-smp/config
+    cp application.properties /opt/phoss-smp/config/
+    cp smp.p12 /opt/phoss-smp/config/
+    ```
+
+    See [Prerequisites](/installation/prerequisites) for keystore requirements.
+  </Step>
+
+  <Step title="Create a data directory">
+    The XML backend stores participant data on disk. Create a persistent directory:
+
+    ```bash
+    mkdir -p /opt/phoss-smp/data
+    ```
+
+    Set `webapp.datapath = /data` in your `application.properties` to match the mount point inside the container.
+  </Step>
+
+  <Step title="Run the container with volumes">
+    Mount both directories and pass the config file path:
+
+    <Tabs>
+      <Tab title="XML">
+        ```bash
+        docker run -d \
+          --name phoss-smp \
+          -p 8888:8080 \
+          -e "CONFIG_FILE=/config/application.properties" \
+          -v /opt/phoss-smp/config:/config \
+          -v /opt/phoss-smp/data:/data \
+          phelger/phoss-smp-xml:latest
+        ```
+      </Tab>
+      <Tab title="SQL">
+        ```bash
+        docker run -d \
+          --name phoss-smp \
+          -p 8888:8080 \
+          -e "CONFIG_FILE=/config/application.properties" \
+          -v /opt/phoss-smp/config:/config \
+          phelger/phoss-smp-sql:latest
+        ```
+        The SQL backend stores data in your external database, so no data volume is needed.
+      </Tab>
+      <Tab title="MongoDB">
+        ```bash
+        docker run -d \
+          --name phoss-smp \
+          -p 8888:8080 \
+          -e "CONFIG_FILE=/config/application.properties" \
+          -v /opt/phoss-smp/config:/config \
+          phelger/phoss-smp-mongodb:latest
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify the container is running">
+    Check logs to confirm a clean startup:
+
+    ```bash
+    docker logs phoss-smp
+    ```
+
+    Then open `http://localhost:8888` in your browser.
+  </Step>
+</Steps>
+
+## Environment variables
+
+You can pass configuration via environment variables on the `docker run` command line instead of mounting a config file.
+
+| Variable | Description |
+|----------|-------------|
+| `CONFIG_FILE` | Absolute path to `application.properties` inside the container (v6.x+). |
+| `WEBAPP_DATAPATH` | Override `webapp.datapath` — the data storage directory. |
+| `SML_SMPID` | Override `sml.smpid` — your SMP identifier. |
+| `SMP_BACKEND` | Override `smp.backend` — set to `xml`, `sql`, or `mongodb`. |
+
+Example using only environment variables (useful for quick testing):
+
+```bash
+docker run --name phoss-smp \
+  -p 8888:8080 \
+  -v .:/a \
+  -e WEBAPP_DATAPATH=/a \
+  -e SML_SMPID=TEST1 \
+  -e SMP_BACKEND=xml \
+  phelger/phoss-smp-xml:latest
+```
+
+<Warning>
+This approach is for testing only. A production deployment requires a full `application.properties` with a valid keystore.
+</Warning>
+
+## Custom configuration with a child Dockerfile
+
+If you prefer to bake configuration into a custom image, create a child Dockerfile that inherits from the official image:
+
+```dockerfile
+# Dockerfile
+FROM phelger/phoss-smp-xml
+
+# Point Tomcat to the configuration file mounted at /config
+ENV CATALINA_OPTS="$CATALINA_OPTS -Dconfig.file=/config/application.properties"
+```
+
+Build and run:
+
+```bash
+docker build --pull -t phoss-smp-with-config -f Dockerfile .
+docker run -d \
+  --name phoss-smp-with-config \
+  -p 8888:8080 \
+  -v /opt/phoss-smp/config:/config \
+  phoss-smp-with-config
+```
+
+If you change the `/config` mount point, update the paths in your `application.properties` accordingly (for example, `smp.keystore.path`).
+
+## Port mapping
+
+All official images expose **port 8080** (Tomcat's default HTTP port). The `-p` flag maps container port 8080 to a host port:
+
+```
+-p 8888:8080   # host port 8888 → container port 8080
+-p 80:8080     # host port 80 → container port 8080
+```
+
+Tomcat logs are written to `/usr/local/tomcat/logs` inside the container. There is no single `catalina.out`; the file is rotated daily as `catalina.out.yyyy-mm-dd`.
+
+## Container management
+
+<CodeGroup>
+
+```bash Check logs
+docker logs phoss-smp
+```
+
+```bash Open a shell
+docker exec -it phoss-smp bash
+```
+
+```bash Stop the container
+docker stop phoss-smp
+```
+
+```bash Remove the container
+docker rm phoss-smp
+```
+
+</CodeGroup>
+
+## ARM64 support
+
+A separate ARM64 image is published for Apple Silicon and ARM-based servers:
+
+```bash
+docker run --name phoss-smp \
+  -p 8888:8080 \
+  -v .:/a \
+  -e WEBAPP_DATAPATH=/a \
+  -e SML_SMPID=TEST1 \
+  -e SMP_BACKEND=xml \
+  phelger/phoss-smp-xml-arm64:latest
+```
+
+## Building images from source
+
+If you need to build your own image from the official Dockerfiles, see [Building from source](/installation/building-from-source).

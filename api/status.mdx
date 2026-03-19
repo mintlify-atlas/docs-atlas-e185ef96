@@ -1,0 +1,195 @@
+---
+title: 'Status and health'
+description: 'Health check and liveness endpoints for monitoring phoss SMP.'
+---
+
+phoss SMP provides two endpoints for health checks and monitoring.
+
+---
+
+## GET `/ping/`
+
+Simple liveness probe. Always enabled. Returns a short plain-text response to confirm the server is running.
+
+**Authentication:** Not required.
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl https://smp.example.org/ping/
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```
+    HTTP/1.1 200 OK
+    Content-Type: text/plain
+
+    pong
+    ```
+  </Tab>
+</Tabs>
+
+This endpoint is suitable for load balancer health checks. It does not query any backend data.
+
+---
+
+## GET `/smp-status/`
+
+Returns a JSON object with detailed information about the running SMP instance including configuration state, certificate validity, SML and Directory integration status, and backend data counts.
+
+**Authentication:** Not required.
+
+<Warning>
+This endpoint is **disabled by default**. Enable it by setting `smp.status.enabled = true` in `application.properties`. When disabled, the endpoint returns `{"status.enabled": false}`.
+</Warning>
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl https://smp.example.org/smp-status/
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```json
+    {
+      "build.timestamp": "2025-01-15T10:30:00Z",
+      "startup.datetime": "2026-03-19T08:00:00+01:00",
+      "status.datetime": "2026-03-19T12:34:56+01:00",
+      "status.datetime.utc": "2026-03-19T11:34:56Z",
+      "version.smp": "8.1.3",
+      "version.java": "17.0.9",
+      "global.debug": false,
+      "global.production": true,
+      "smp.application": "phoss SMP",
+      "smp.backend": "sql",
+      "smp.mode": "production",
+      "smp.resttype": "peppol",
+      "smp.identifiertype": "peppol",
+      "smp.id": "SMP-DE-001",
+      "smp.writable-rest-api.enabled": true,
+      "smp.rest-remote-query-api.enabled": false,
+      "smp.publicurl": "https://smp.example.org",
+      "smp.forceroot": false,
+      "smp.publicurl.mode": "request",
+      "smp.rest.log-exceptions": false,
+      "smp.rest.payload-on-error": false,
+      "smp.sml.enabled": true,
+      "smp.sml.needed": false,
+      "smp.sml.url": "https://sml.peppolcentral.org/manageparticipantidentifier",
+      "smp.sml.dnszone": "edelivery.tech.ec.europa.eu.",
+      "smp.sml.connection-timeout-ms": 5000,
+      "smp.sml.request-timeout-ms": 10000,
+      "smp.pd.enabled": false,
+      "smp.pd.needed": false,
+      "smp.pd.auto-update": false,
+      "smp.pd.hostname": "directory.peppol.eu",
+      "smp.certificate.configuration-valid": true,
+      "smp.certificate.issuer": "CN=PEPPOL SERVICE METADATA PUBLISHER CA - G2, ...",
+      "smp.certificate.subject": "CN=SMP-DE-001, ...",
+      "smp.certificate.expired": false,
+      "proxy.http.configured": false,
+      "proxy.https.configured": false,
+      "proxy.username.configured": false,
+      "csp.enabled": true,
+      "csp.reporting.only": false,
+      "csp.reporting.enabled": false
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response fields
+
+<ResponseField name="build.timestamp" type="string">
+  ISO 8601 timestamp of when this version of phoss SMP was built.
+</ResponseField>
+
+<ResponseField name="startup.datetime" type="string">
+  ISO 8601 timestamp of when the SMP server last started.
+</ResponseField>
+
+<ResponseField name="status.datetime" type="string">
+  ISO 8601 timestamp of when this status response was generated (server local time with offset).
+</ResponseField>
+
+<ResponseField name="status.datetime.utc" type="string">
+  Same as `status.datetime` but in UTC.
+</ResponseField>
+
+<ResponseField name="version.smp" type="string">
+  phoss SMP version number, e.g. `8.1.3`.
+</ResponseField>
+
+<ResponseField name="version.java" type="string">
+  JVM version the server is running on.
+</ResponseField>
+
+<ResponseField name="smp.backend" type="string">
+  Active storage backend: `sql`, `xml`, or `mongodb`.
+</ResponseField>
+
+<ResponseField name="smp.resttype" type="string">
+  Active REST API type: `peppol` or `bdxr`.
+</ResponseField>
+
+<ResponseField name="smp.identifiertype" type="string">
+  Active identifier type: `peppol`, `peppol-lax`, `simple`, `bdxr1`, or `bdxr2`.
+</ResponseField>
+
+<ResponseField name="smp.writable-rest-api.enabled" type="boolean">
+  Whether PUT and DELETE REST endpoints are enabled. When `false`, all write operations return an error.
+</ResponseField>
+
+<ResponseField name="smp.publicurl" type="string">
+  The configured public base URL of this SMP.
+</ResponseField>
+
+<ResponseField name="smp.sml.enabled" type="boolean">
+  Whether SML (Service Metadata Locator) integration is active.
+</ResponseField>
+
+<ResponseField name="smp.certificate.configuration-valid" type="boolean">
+  Whether the keystore is correctly configured and loadable.
+</ResponseField>
+
+<ResponseField name="smp.certificate.expired" type="boolean">
+  Whether the SMP signing certificate has passed its `notAfter` date. Only present when `smp.certificate.configuration-valid` is `true`.
+</ResponseField>
+
+<ResponseField name="smp.pd.enabled" type="boolean">
+  Whether Peppol Directory integration is enabled.
+</ResponseField>
+
+<ResponseField name="csp.enabled" type="boolean">
+  Whether Content Security Policy headers are enabled for the management UI.
+</ResponseField>
+
+---
+
+## GET `/smp-status/?disable-long-running=true`
+
+Same as `GET /smp-status/` but skips queries that may be slow on large datasets, such as counting service groups from the backend. Use this variant for frequent automated health checks where response time matters more than completeness.
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl 'https://smp.example.org/smp-status/?disable-long-running=true'
+    ```
+  </Tab>
+</Tabs>
+
+The response has the same structure as the full status response but omits fields populated by long-running backend queries.
+
+---
+
+## Enabling the status endpoint
+
+Add the following to `application.properties`:
+
+```properties
+smp.status.enabled = true
+```
+
+<Note>
+The status endpoint reveals configuration details including the public URL, backend type, SML and Directory settings, and certificate information. In production environments, consider restricting access to `/smp-status/` at the reverse proxy level if this information should not be publicly accessible.
+</Note>

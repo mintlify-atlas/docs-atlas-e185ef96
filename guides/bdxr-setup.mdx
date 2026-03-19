@@ -1,0 +1,150 @@
+---
+title: 'OASIS BDXR SMP setup'
+description: 'Configure phoss SMP for OASIS BDXR SMP 1.0 or 2.0 mode, including identifier type settings, REST type selection, and network-specific differences.'
+---
+
+phoss SMP supports both OASIS BDXR SMP 1.0 and BDXR SMP 2.0 in addition to the Peppol SMP 1.x specification. This guide explains how to switch to BDXR mode and describes the differences from Peppol mode.
+
+## Peppol SMP vs BDXR SMP: key differences
+
+| Aspect | Peppol SMP | BDXR SMP 1.0 | BDXR SMP 2.0 |
+|--------|-----------|-------------|-------------|
+| `smp.identifiertype` | `peppol` | `bdxr1` | `bdxr2` |
+| `smp.rest.type` | `peppol` | `bdxr` | `bdxr` |
+| Namespace | `busdox.org/serviceMetadata/…` | `docs.oasis-open.org/bdxr/ns/SMP/1.0/` | `docs.oasis-open.org/bdxr/ns/SMP/2.0/` |
+| Identifier encoding | `scheme::value` (double colon) | `scheme::value` | scheme and value as separate elements |
+| XML response API class | `SMPServerAPI` | `BDXR1ServerAPI` | `BDXR2ServerAPI` |
+| Extension element | `Extension` | `Extension` | `SMPExtensions` |
+
+<Info>
+The REST URL structure is the same across all three modes — only the XML namespaces and element names in request/response bodies differ.
+</Info>
+
+## Configure for BDXR SMP 1.0
+
+```properties
+smp.identifiertype = bdxr1
+smp.rest.type      = bdxr
+```
+
+`bdxr1` uses the OASIS BDXR SMP 1.0 identifier format. Identifier comparisons are **case-sensitive** in BDXR mode, unlike Peppol mode which normalises identifiers to lowercase.
+
+## Configure for BDXR SMP 2.0
+
+```properties
+smp.identifiertype = bdxr2
+smp.rest.type      = bdxr
+```
+
+`bdxr2` uses the OASIS BDXR SMP 2.0 identifier model. BDXR SMP 2.0 introduces a richer XML schema with support for multiple service endpoints per document type and improved extension handling.
+
+<Warning>
+Do not mix `smp.rest.type = peppol` with `smp.identifiertype = bdxr1` or `bdxr2`. The identifier type and REST type must be consistent. Mismatches will cause malformed XML responses.
+</Warning>
+
+## Identifier format differences
+
+Peppol identifiers use double-colon notation to encode scheme and value in a single string:
+
+```
+iso6523-actorid-upis::0088:5060000000001
+```
+
+BDXR SMP 1.0 uses the same encoding convention for URL path segments, but the scheme and value are represented as separate XML attributes in response documents:
+
+```xml
+<ParticipantIdentifier scheme="iso6523-actorid-upis">0088:5060000000001</ParticipantIdentifier>
+```
+
+BDXR SMP 2.0 further separates these in a more structured element model — consult the [OASIS BDXR SMP 2.0 specification](https://docs.oasis-open.org/bdxr/bdx-smp/v2.0/) for the full schema.
+
+## BDXR SMP 1.0 vs BDXR SMP 2.0 feature differences
+
+<AccordionGroup>
+  <Accordion title="BDXR SMP 1.0 features">
+    - Defined in the OASIS BDXR SMP 1.0 standard
+    - Namespace: `http://docs.oasis-open.org/bdxr/ns/SMP/1.0/`
+    - Widely deployed; required for CEF eDelivery conformance testing
+    - Served by `BDXR1ServerAPI` in phoss SMP
+    - Compatible with the AusDigital (Australian Digital Business) network
+  </Accordion>
+
+  <Accordion title="BDXR SMP 2.0 features">
+    - Defined in the OASIS BDXR SMP 2.0 standard
+    - Namespace: `http://docs.oasis-open.org/bdxr/ns/SMP/2.0/`
+    - Richer extension model (`SMPExtensions` element)
+    - Served by `BDXR2ServerAPI` in phoss SMP
+    - Use when your network or trading partner requires BDXR SMP 2.0 specifically
+  </Accordion>
+</AccordionGroup>
+
+## Keystore and truststore
+
+The keystore configuration is the same regardless of SMP mode:
+
+```properties
+smp.keystore.type         = pkcs12
+smp.keystore.path         = /etc/smp/keystore/smp.p12
+smp.keystore.password     = changeit
+smp.keystore.key.alias    = smp keypair
+smp.keystore.key.password = changeit
+```
+
+For BDXR deployments outside the Peppol network, use a truststore appropriate for your network's PKI. If you are deploying for CEF eDelivery, use the CEF-provided truststore.
+
+## AusDigital network configuration
+
+The Australian Digital Business (AusDigital / ATO) network uses OASIS BDXR SMP 1.0. Configuration:
+
+```properties
+smp.identifiertype = bdxr1
+smp.rest.type      = bdxr
+```
+
+AusDigital uses a Digital Capability Locator (DCL) instead of the Peppol SML. SML integration (`sml.enabled`) should remain `false` for AusDigital deployments. Register your SMP with the DCL directly through the ATO's onboarding process.
+
+<Tip>
+Set `smp.publicurl` explicitly when deploying for AusDigital to ensure the correct self-referential URLs appear in SMP responses used by the DCL lookup chain.
+</Tip>
+
+## CEF eDelivery conformance testing
+
+phoss SMP was the first SMP to achieve [CEF eDelivery OASIS SMP conformance](https://ec.europa.eu/digital-building-blocks/wikis/display/DIGITAL/OASIS+SMP+conformant+solutions). To prepare for conformance testing:
+
+<Steps>
+  <Step title="Set BDXR SMP 1.0 mode">
+    ```properties
+    smp.identifiertype = bdxr1
+    smp.rest.type      = bdxr
+    ```
+  </Step>
+
+  <Step title="Ensure HTTPS is configured">
+    CEF conformance tests connect over HTTPS. Your server must have a valid TLS certificate (not self-signed for production testing).
+  </Step>
+
+  <Step title="Disable unnecessary endpoints">
+    For conformance testing, disable the remote query API and status endpoint to minimise the attack surface:
+
+    ```properties
+    smp.rest.remote.queryapi.disabled = true
+    smp.status.enabled                = false
+    ```
+  </Step>
+
+  <Step title="Register test participants and document types">
+    Use the management UI or REST API to create the service groups and service metadata entries required by the CEF test plan.
+  </Step>
+
+  <Step title="Run the CEF test suite">
+    Submit your SMP URL to the CEF eDelivery test harness. The tests exercise GET, PUT, and DELETE on service groups and service metadata using BDXR SMP 1.0 XML.
+  </Step>
+</Steps>
+
+## Switching between modes
+
+<Warning>
+Changing `smp.identifiertype` on a running system that already has service groups stored will cause identifier lookups to fail. Existing data was stored with the old identifier scheme rules. Migrate all data and update clients before switching modes in production.
+</Warning>
+
+To switch from Peppol mode to BDXR mode on a fresh installation, update the two properties and restart the server. No data migration is required if no service groups have been created yet.

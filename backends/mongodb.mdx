@@ -1,0 +1,163 @@
+---
+title: 'MongoDB backend'
+description: 'Document-based storage backend for phoss SMP using MongoDB. Suitable for flexible document storage and horizontally scaled deployments.'
+---
+
+The MongoDB backend stores all SMP data in a MongoDB database as BSON documents. It is a good fit for organisations that already operate MongoDB infrastructure, or that prefer a schema-flexible document store.
+
+## Requirements
+
+- MongoDB **4.4 or later** (tested with MongoDB 7.x). Replica set mode is recommended for write-concern guarantees.
+- MongoDB Java driver **5.6.3** (bundled with `phoss-smp-backend-mongodb`).
+
+## Selecting the MongoDB backend
+
+Set the following property in `application.properties`:
+
+```properties
+smp.backend = mongodb
+```
+
+Use the `phoss-smp-webapp-mongodb` WAR when deploying.
+
+## Configuration
+
+Only two properties are required:
+
+```properties
+mongodb.connectionstring = mongodb://localhost
+mongodb.dbname           = phoss-smp
+```
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `mongodb.connectionstring` | Yes | [MongoDB connection string URI](https://www.mongodb.com/docs/manual/reference/connection-string/). Supports all URI options including authentication, TLS, and replica-set addresses. |
+| `mongodb.dbname` | Yes | Name of the MongoDB database to use. The database is created automatically if it does not exist. |
+
+<Warning>
+If either `mongodb.connectionstring` or `mongodb.dbname` is missing, phoss SMP will throw an `IllegalStateException` and refuse to start.
+</Warning>
+
+## Connection string examples
+
+<Tabs>
+  <Tab title="Local (development)">
+    ```properties
+    mongodb.connectionstring = mongodb://localhost
+    mongodb.dbname           = phoss-smp
+    ```
+  </Tab>
+  <Tab title="With authentication">
+    ```properties
+    mongodb.connectionstring = mongodb://smp-user:secret@mongo-host:27017/phoss-smp?authSource=admin
+    mongodb.dbname           = phoss-smp
+    ```
+  </Tab>
+  <Tab title="Replica set">
+    ```properties
+    mongodb.connectionstring = mongodb://mongo1:27017,mongo2:27017,mongo3:27017/?replicaSet=rs0
+    mongodb.dbname           = phoss-smp
+    ```
+  </Tab>
+  <Tab title="MongoDB Atlas">
+    ```properties
+    mongodb.connectionstring = mongodb+srv://smp-user:secret@cluster0.example.mongodb.net/?retryWrites=true&w=majority
+    mongodb.dbname           = phoss-smp
+    ```
+  </Tab>
+  <Tab title="TLS / SSL">
+    ```properties
+    mongodb.connectionstring = mongodb://mongo-host:27017/?tls=true&tlsCAFile=/etc/ssl/mongo-ca.pem
+    mongodb.dbname           = phoss-smp
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+For MongoDB Atlas, use an `mongodb+srv://` URI. All connection options (TLS, authentication, read preference, write concern) are specified in the connection string; no additional properties are needed.
+</Tip>
+
+## Collection structure
+
+phoss SMP creates all collections automatically when first accessed. Writes use `WriteConcern.MAJORITY` with journaling enabled to guarantee durability.
+
+### SMP domain collections
+
+| Collection | Contents |
+|------------|----------|
+| `smp-servicegroup` | Service groups (participants) |
+| `smp-serviceinfo` | Service metadata and endpoint information |
+| `smp-redirect` | Document-type redirects |
+| `smp-businesscard` | Business card data (Peppol Directory) |
+| `smp-transportprofile` | Registered transport profiles |
+| `smp-smlinfo` | SML endpoint configuration |
+| `smp-settings` | SMP runtime settings |
+| `smp-participant-migration` | Participant migration records |
+
+### Security and system collections
+
+| Collection | Contents |
+|------------|----------|
+| `users` | Management UI user accounts |
+| `user-roles` | Role definitions |
+| `user-groups` | User group assignments |
+| `user-tokens` | API bearer tokens |
+| `smp-sys-migration` | Internal system migration history |
+| `smp-sys-message` | System-wide messages shown in the UI |
+| `smp-long-running-job` | Background job results |
+
+## Docker setup
+
+The following `compose.yml` starts phoss SMP together with a standalone MongoDB instance:
+
+```yaml
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: secret
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  smp:
+    image: phoss-smp-mongodb:latest
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      # Override properties via environment variables if supported by your image
+      MONGODB_CONNECTIONSTRING: "mongodb://root:secret@mongo:27017/?authSource=admin"
+      MONGODB_DBNAME: phoss-smp
+    ports:
+      - "8080:8080"
+
+volumes:
+  mongo-data:
+```
+
+<Note>
+Always persist the MongoDB data directory (`/data/db`) with a named volume or bind mount. Containers without a volume will lose all data on restart.
+</Note>
+
+## Migration from the XML backend
+
+When phoss SMP first starts with the MongoDB backend, it automatically migrates ph-oton security data (users, roles, user groups, user tokens) from the XML files in `webapp.datapath` if the corresponding MongoDB collections are empty. After a successful migration the original XML files are renamed with a `.migrated` suffix.
+
+SMP-specific data (service groups, redirects, service metadata, business cards) is **not** migrated automatically. Re-register this data via the management UI or REST API after switching backends.
+
+## Advantages
+
+- **Schema flexibility.** Documents can evolve independently of a fixed table schema.
+- **Horizontal scaling.** MongoDB replica sets and sharding enable high-availability and read scaling.
+- **MongoDB Atlas support.** Use a fully managed cloud MongoDB cluster with no infrastructure to operate.
+- **Automatic collection creation.** No DDL scripts or schema setup steps are required; collections are created on first use.
+
+## Limitations
+
+- Requires an externally managed MongoDB server (or Atlas cluster).
+- No Flyway-style versioned migrations; schema changes between phoss SMP versions are handled via internal one-time migrations.
+- MongoDB replica set mode is required to take advantage of `WriteConcern.MAJORITY` durability guarantees. A standalone MongoDB instance downgrades to weaker write guarantees.

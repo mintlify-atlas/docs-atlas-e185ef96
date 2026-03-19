@@ -1,0 +1,79 @@
+---
+title: 'Directory integration'
+description: 'Publish business cards to the Peppol Directory so participants can be discovered by name and capabilities.'
+---
+
+## What Peppol Directory is
+
+The Peppol Directory is a public search service that allows buyers and suppliers to find participants by name, country, and document types. Each participant registered in an SMP can optionally have a Business Card that describes the organisation and its capabilities. The Directory indexes these business cards and makes them searchable.
+
+Your SMP communicates with the Directory using the `pdclient` (Peppol Directory client) library.
+
+## Enabling Directory integration
+
+Directory integration is disabled by default. Configure it in `application.properties`:
+
+```properties
+# Enable the /businesscard REST API and Directory client
+smp.directory.integration.enabled = false
+
+# Automatically push business card changes to the Directory
+smp.directory.integration.autoupdate = false
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `smp.directory.integration.enabled` | `false` | When `true`, the `/businesscard/{participantId}` REST endpoints are active and business cards can be created and queried. |
+| `smp.directory.integration.autoupdate` | `false` | When `true`, any change to a business card (create, update, delete) is automatically pushed to the configured Directory server. When `false`, you must trigger publishing manually from the Administration UI. |
+
+<Note>
+Both properties are also controllable at runtime through Administration > SMP Settings. The `application.properties` values serve as the initial defaults.
+</Note>
+
+## Directory name in the UI
+
+The Administration UI labels Directory-related features using the `webapp.directory.name` property. Change this if your deployment uses a different Directory implementation.
+
+```properties
+# Default label shown in the UI
+webapp.directory.name = Peppol Directory
+```
+
+## Business card management
+
+A Business Card contains:
+- One or more **entities** (organisations), each with a name, country code, and optional geographic information.
+- A list of **identifiers** for the participant.
+- A list of **document types** the participant supports (derived from service metadata).
+
+Business cards are managed through:
+- The REST API: `PUT /businesscard/{participantId}` and `DELETE /businesscard/{participantId}`
+- The Administration UI: Administration > Business Cards
+
+### Auto-publishing
+
+When `smp.directory.integration.autoupdate = true`, phoss SMP calls the Peppol Directory REST API whenever a business card is saved or deleted. The Directory then re-indexes the participant.
+
+When auto-update is disabled, you can manually trigger a push to the Directory from the Administration UI or by calling the Directory API directly.
+
+<Tip>
+Enable auto-update in production so the Directory stays current whenever participants update their information. Keep it disabled in test environments to avoid polluting the pilot Directory with test data.
+</Tip>
+
+## Directory client certificates
+
+Communication with the Peppol Directory server uses mutual TLS. The `pdclient.*` properties configure the client certificate and truststore. By default these inherit from the SMP keystore:
+
+```properties
+pdclient.keystore.type         = ${smp.keystore.type}
+pdclient.keystore.path         = ${smp.keystore.path}
+pdclient.keystore.password     = ${smp.keystore.password}
+pdclient.keystore.key.alias    = ${smp.keystore.key.alias}
+pdclient.keystore.key.password = ${smp.keystore.key.password}
+
+pdclient.truststore.type     = ${smp.truststore.type}
+pdclient.truststore.path     = ${smp.truststore.path}
+pdclient.truststore.password = ${smp.truststore.password}
+```
+
+See [Keystore and PKI](/configuration/keystore-pki) for the full certificate configuration reference.

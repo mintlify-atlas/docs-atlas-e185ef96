@@ -1,0 +1,208 @@
+---
+title: Building from source
+description: Clone, build, and run phoss SMP from the GitHub source repository using Maven.
+---
+
+Building from source gives you full control over which backend you deploy and lets you apply local patches. The build produces standard WAR files identical to the official releases.
+
+## Prerequisites
+
+Before building, ensure you have:
+
+- Java 17+
+- Maven 3.6+
+- Git
+
+See [Prerequisites](/installation/prerequisites) for details.
+
+## Clone the repository
+
+```bash
+git clone https://github.com/phax/phoss-smp.git
+cd phoss-smp
+```
+
+## Build commands
+
+<Steps>
+  <Step title="Full build">
+    Build all modules and run the test suite:
+
+    ```bash
+    mvn clean install
+    ```
+
+    This compiles all eight modules and produces three deployable WAR files:
+
+    - `phoss-smp-webapp-xml/target/phoss-smp-webapp-xml-*.war`
+    - `phoss-smp-webapp-sql/target/phoss-smp-webapp-sql-*.war`
+    - `phoss-smp-webapp-mongodb/target/phoss-smp-webapp-mongodb-*.war`
+  </Step>
+
+  <Step title="Skip tests (faster)">
+    Integration tests require live database services. Skip them for a faster build:
+
+    ```bash
+    mvn clean install -DskipTests
+    ```
+  </Step>
+
+  <Step title="Build a single backend">
+    To build only one webapp module and its dependencies:
+
+    ```bash
+    # XML backend
+    mvn clean install -pl phoss-smp-webapp-xml -am
+
+    # SQL backend
+    mvn clean install -pl phoss-smp-webapp-sql -am
+
+    # MongoDB backend
+    mvn clean install -pl phoss-smp-webapp-mongodb -am
+    ```
+
+    The `-am` flag builds all upstream modules that the target depends on.
+  </Step>
+</Steps>
+
+## Module architecture
+
+The project is structured as a Maven multi-module build:
+
+```
+phoss-smp-parent-pom (root)
+├── phoss-smp-backend          # Core interfaces, domain model, REST API logic
+├── phoss-smp-backend-sql      # SQL persistence (JDBC + Flyway)
+├── phoss-smp-backend-mongodb  # MongoDB persistence
+├── phoss-smp-backend-xml      # XML file-based persistence
+├── phoss-smp-webapp           # Shared web layer: servlets, UI, REST filters
+├── phoss-smp-webapp-xml       # Deployable WAR = webapp + backend-xml
+├── phoss-smp-webapp-sql       # Deployable WAR = webapp + backend-sql
+└── phoss-smp-webapp-mongodb   # Deployable WAR = webapp + backend-mongodb
+```
+
+Only the `phoss-smp-webapp-*` modules produce deployable WAR artifacts. The others are libraries.
+
+<Info>
+If dependent Helger libraries (such as `ph-oton`) are at SNAPSHOT versions, you must build them locally first before building phoss SMP.
+</Info>
+
+## Running integration tests
+
+Integration tests for the SQL and MongoDB backends require live database services. Start them with the provided Docker Compose file:
+
+```bash
+docker compose -f unittest-db-docker-compose.yml up -d
+```
+
+This starts:
+- MySQL on port **3306**
+- MongoDB on port **27017**
+
+Test configuration is in `src/test/resources/test-smp-server-sql.properties` (and equivalent files for other backends).
+
+Run tests for a specific backend:
+
+```bash
+mvn test -pl phoss-smp-webapp-sql
+```
+
+Run a single test class or method:
+
+```bash
+# Single class
+mvn test -Dtest=ServiceGroupInterfaceTest -pl phoss-smp-webapp-sql
+
+# Single method
+mvn test -Dtest=ServiceGroupInterfaceTest#testSpecificMethod -pl phoss-smp-webapp-sql
+```
+
+## Local development with Jetty
+
+You can run the SMP directly from your IDE without building or deploying a WAR. Each webapp module contains a Jetty launcher class:
+
+| Backend | Class | Module |
+|---------|-------|--------|
+| XML | `RunInJettySMPSERVER_XML` | `phoss-smp-webapp-xml` |
+| SQL | `RunInJettySMPSERVER_SQL` | `phoss-smp-webapp-sql` |
+
+Run the class as a standard Java application. The SMP starts at `http://localhost:90`.
+
+Default credentials: `admin@helger.com` / `password`
+
+### Local configuration overrides
+
+Create a `private-application.properties` file alongside the module's `application.properties`. This file is gitignored and takes precedence over the committed defaults, so you can set local database URLs, keystore paths, and other environment-specific values without accidentally committing them.
+
+## Building Docker images from source
+
+The `docker/` directory contains Dockerfiles for all backends and build strategies.
+
+<Tabs>
+  <Tab title="XML backend">
+    Build from the published binary release:
+
+    ```bash
+    docker build --pull \
+      -t phoss-smp-release-binary-xml \
+      -f docker/Dockerfile-release-binary-xml \
+      --build-arg SMP_VERSION=8.1.3 \
+      docker/
+    ```
+
+    Build from GitHub source:
+
+    ```bash
+    docker build --pull \
+      -t phoss-smp-release-from-source-xml \
+      -f docker/Dockerfile-release-from-source-xml \
+      --build-arg SMP_VERSION=8.1.3 \
+      docker/
+    ```
+  </Tab>
+  <Tab title="SQL backend">
+    ```bash
+    docker build --pull \
+      -t phoss-smp-release-binary-sql \
+      -f docker/Dockerfile-release-binary-sql \
+      --build-arg SMP_VERSION=8.1.3 \
+      docker/
+    ```
+  </Tab>
+  <Tab title="MongoDB backend">
+    ```bash
+    docker build --pull \
+      -t phoss-smp-release-binary-mongodb \
+      -f docker/Dockerfile-release-binary-mongodb \
+      --build-arg SMP_VERSION=8.1.3 \
+      docker/
+    ```
+  </Tab>
+  <Tab title="Snapshot from local source">
+    Build the SQL backend from your local working copy. Note the `..` build context:
+
+    ```bash
+    docker build --pull \
+      -t phoss-smp-snapshot-local-sql \
+      -f docker/Dockerfile-snapshot-from-local-source-sql \
+      .
+    ```
+  </Tab>
+</Tabs>
+
+To override the version for binary release builds:
+
+```bash
+docker build --build-arg SMP_VERSION=8.1.3 \
+  -t phoss-smp-xml-8.1.3 \
+  -f docker/Dockerfile-release-binary-xml \
+  docker/
+```
+
+After the build completes, run the image:
+
+```bash
+docker run -d --name phoss-smp -p 8888:8080 phoss-smp-release-binary-xml
+```
+
+Open `http://localhost:8888` to verify the deployment.

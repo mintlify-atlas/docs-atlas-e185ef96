@@ -1,0 +1,161 @@
+---
+title: 'Security hardening'
+description: 'Production security settings for phoss SMP: disable information disclosure, enable CSP, restrict APIs, and enforce HTTPS.'
+---
+
+The default `application.properties` is optimized for development convenience. Before going to production, apply the settings on this page to reduce the attack surface and limit information disclosure.
+
+## Production mode flags
+
+Set the global mode flags so the application activates production-oriented behavior:
+
+```properties
+global.debug = false
+global.production = true
+webapp.testversion = false
+```
+
+| Property | Production value | Effect |
+|----------|-----------------|--------|
+| `global.debug` | `false` | Disables verbose debug logging and development helpers. |
+| `global.production` | `true` | Enables production-mode safety checks throughout the application. |
+| `webapp.testversion` | `false` | Removes the "test version" banner from the UI. |
+
+## Authentication
+
+phoss SMP supports two authentication mechanisms for the write REST API:
+
+| Method | Header | Notes |
+|--------|--------|-------|
+| Bearer token (recommended) | `Authorization: Bearer <token>` | Tokens are created in Administration > Security > User Tokens. Available since v6.0.7. |
+| Basic Auth (legacy) | `Authorization: Basic <base64(email:password)>` | Still supported but less secure. |
+
+<Tip>
+Use Bearer tokens in production. They can be revoked individually without changing user passwords, and they do not expose credentials in log files.
+</Tip>
+
+## Login error details
+
+By default, the login form reports whether a login failure was caused by an unknown user or a wrong password. Disable this in production to prevent user enumeration:
+
+```properties
+webapp.security.login.errordetails = false
+```
+
+## Content Security Policy
+
+The SMP serves an HTML management UI. CSP headers limit what resources browsers can load, reducing XSS risk.
+
+```properties
+# Enable CSP headers
+csp.enabled = true
+
+# Set to true to send CSP as a report-only header during roll-out
+csp.reporting.only = false
+
+# Send CSP violation reports
+csp.reporting.enabled = true
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `csp.enabled` | `true` | Adds `Content-Security-Policy` (or `Content-Security-Policy-Report-Only`) response headers to all UI pages. |
+| `csp.reporting.only` | `false` | When `true`, violations are only reported, not enforced. Use this during initial deployment to check for breakage before enforcing. |
+| `csp.reporting.enabled` | `true` | When `true`, enables the CSP reporting endpoint. |
+
+## Status endpoint
+
+The `/smp-status/` endpoint returns a JSON health report that includes version information and certificate details. It is enabled by default in the code but should be disabled in production unless you need it for monitoring:
+
+```properties
+smp.status.enabled = false
+```
+
+If you need the status endpoint for health checks, you can also control whether certificate validity dates are exposed:
+
+```properties
+# Show certificate not-before and not-after dates in status output
+smp.status.show.certificate.dates = false
+```
+
+<Warning>
+Leave `smp.status.enabled = false` unless you have a specific need. The status response reveals software versions and certificate details that can assist an attacker in fingerprinting your deployment.
+</Warning>
+
+## Remote Query API
+
+The Remote Query API (`/smpquery/*`) allows your SMP to proxy lookups to other SMP servers. It is disabled by default:
+
+```properties
+smp.rest.remote.queryapi.disabled = true
+```
+
+Do not enable this in production unless you have a documented need.
+
+## Participant list on the start page
+
+By default the public start page lists all registered participants. This discloses your full participant inventory to unauthenticated visitors:
+
+```properties
+webapp.startpage.participants.none = true
+```
+
+Setting this to `true` hides the participant list from the start page.
+
+## Error payload in REST responses
+
+By default, REST error responses include a plain-text explanation. Consider disabling this to avoid leaking internal details:
+
+```properties
+smp.rest.payload.on.error = false
+```
+
+## Imprint configuration
+
+Some jurisdictions require a legal imprint on all web pages. phoss SMP supports an optional imprint link displayed in the UI footer:
+
+```properties
+webapp.imprint.enabled    = true
+webapp.imprint.text       = Legal notice
+webapp.imprint.href       = https://www.example.org/legal
+webapp.imprint.target     = _blank
+webapp.imprint.cssclasses = mx-3 badge badge-primary
+```
+
+| Property | Description |
+|----------|-------------|
+| `webapp.imprint.enabled` | Show or hide the imprint link. Default: `false`. |
+| `webapp.imprint.text` | Link text displayed in the UI. |
+| `webapp.imprint.href` | URL the imprint link points to. |
+| `webapp.imprint.target` | Link target attribute (e.g. `_blank` to open in a new tab). |
+| `webapp.imprint.cssclasses` | CSS classes applied to the imprint element. |
+
+## HTTPS enforcement
+
+phoss SMP does not enforce HTTPS on its own. Enforce it at the reverse proxy or load balancer:
+
+- Configure the proxy to redirect all HTTP traffic to HTTPS.
+- Ensure the proxy forwards the correct scheme to Tomcat so the SMP generates `https://` URLs.
+- See [Reverse proxy](/configuration/reverse-proxy) for proxy configuration examples.
+
+## Recommended production properties summary
+
+```properties
+# Mode
+global.debug = false
+global.production = true
+webapp.testversion = false
+
+# UI security
+webapp.security.login.errordetails = false
+webapp.startpage.participants.none = true
+
+# CSP
+csp.enabled = true
+csp.reporting.only = false
+
+# API surface reduction
+smp.status.enabled = false
+smp.rest.remote.queryapi.disabled = true
+smp.rest.payload.on.error = false
+```
