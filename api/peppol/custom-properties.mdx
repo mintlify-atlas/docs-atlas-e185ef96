@@ -1,0 +1,248 @@
+---
+title: "Custom properties"
+description: "REST endpoints for managing custom key-value metadata on service groups. Available since phoss SMP v8.1.0."
+---
+
+Custom properties allow you to attach arbitrary key-value metadata to a service group. They were introduced in phoss SMP **v8.1.0**.
+
+Each property has:
+- A **type**: `public` (visible to all callers) or `private` (only returned to authenticated owners)
+- A **name**: alphanumeric string with dots, hyphens, or underscores — max 256 characters, regex `[a-zA-Z0-9.\-_]{1,256}`
+- A **value**: string up to 256 characters; may not contain `\r`, `\n`, or `\0`
+
+<Note>
+One predefined custom property name exists: `hr.oib` (Croatian OIB tax number). If used, its value must be exactly 11 digits.
+</Note>
+
+XML namespace: `http://busdox.org/serviceMetadata/publishing/1.0/`
+
+---
+
+## GET `/{ServiceGroupId}/customproperties`
+
+Returns all custom properties for a service group. Unauthenticated callers receive only `public` properties. Authenticated owners receive all properties including `private` ones.
+
+**Authentication:** Optional. Authenticated owners see private properties.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier in `scheme::value` format, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="Unauthenticated request">
+    ```bash
+    curl https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties
+    ```
+  </Tab>
+  <Tab title="Authenticated request (all properties)">
+    ```bash
+    curl https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties \
+      -H "Authorization: Bearer <token>"
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```json
+    [
+      { "type": "public",  "name": "countryCode", "value": "DE" },
+      { "type": "private", "name": "internalRef", "value": "REF-42" }
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | `ServiceGroupId` cannot be parsed |
+| `404` | No service group with this identifier exists |
+
+---
+
+## GET `/{ServiceGroupId}/customproperties/{PropertyName}`
+
+Returns a single custom property by name. Unauthenticated callers can only retrieve `public` properties.
+
+**Authentication:** Optional.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier, URL-encoded.
+</ParamField>
+
+<ParamField path="PropertyName" type="string" required>
+  The property name. Must match `[a-zA-Z0-9.\-_]{1,256}`.
+</ParamField>
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties/countryCode
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```json
+    { "type": "public", "name": "countryCode", "value": "DE" }
+    ```
+  </Tab>
+</Tabs>
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | `ServiceGroupId` cannot be parsed, or `PropertyName` is invalid |
+| `404` | Service group not found, or property not found (or property is private and caller is not authenticated) |
+
+---
+
+## PUT `/{ServiceGroupId}/customproperties`
+
+Replaces **all** custom properties for a service group with the provided list.
+
+**Authentication:** Required. Caller must own the service group.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="Request body (JSON array)">
+    ```json
+    [
+      { "type": "public",  "name": "countryCode", "value": "DE" },
+      { "type": "private", "name": "internalRef", "value": "REF-42" }
+    ]
+    ```
+  </Tab>
+  <Tab title="curl example">
+    ```bash
+    curl -X PUT \
+      https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      --data-binary @properties.json
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+This operation replaces the entire property list. Any property not included in the request body will be deleted. To add a single property without affecting others, use the single-property PUT endpoint below.
+</Warning>
+
+### Property type values
+
+| Type value | Visibility |
+|------------|-----------|
+| `public` | Returned to all callers (authenticated and unauthenticated) |
+| `private` | Returned only to authenticated owners |
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Invalid identifier, invalid property name/value, or predefined property value violates its rule |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | Service group not found |
+
+---
+
+## PUT `/{ServiceGroupId}/customproperties/{PropertyType}/{PropertyName}`
+
+Sets or replaces a single custom property. If a property with the same name already exists, it is replaced regardless of its current type.
+
+**Authentication:** Required. Caller must own the service group.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier, URL-encoded.
+</ParamField>
+
+<ParamField path="PropertyType" type="string" required>
+  Either `public` or `private`.
+</ParamField>
+
+<ParamField path="PropertyName" type="string" required>
+  The property name. Must match `[a-zA-Z0-9.\-_]{1,256}`.
+</ParamField>
+
+The property value is passed as the plain-text request body.
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl -X PUT \
+      "https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties/public/countryCode" \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: text/plain" \
+      --data "DE"
+    ```
+  </Tab>
+</Tabs>
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Invalid type (not `public` or `private`), invalid property name, value too long, or predefined property value violates its rule |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | Service group not found |
+
+---
+
+## DELETE `/{ServiceGroupId}/customproperties`
+
+Deletes **all** custom properties from a service group.
+
+**Authentication:** Required. Caller must own the service group.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier, URL-encoded.
+</ParamField>
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl -X DELETE \
+      https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties \
+      -H "Authorization: Bearer <token>"
+    ```
+  </Tab>
+</Tabs>
+
+Returns `HTTP 200 OK` with the number of deleted properties in the response body.
+
+---
+
+## DELETE `/{ServiceGroupId}/customproperties/{PropertyName}`
+
+Deletes a single custom property by name.
+
+**Authentication:** Required. Caller must own the service group.
+
+<ParamField path="ServiceGroupId" type="string" required>
+  The participant identifier, URL-encoded.
+</ParamField>
+
+<ParamField path="PropertyName" type="string" required>
+  The property name to delete.
+</ParamField>
+
+<Tabs>
+  <Tab title="curl example">
+    ```bash
+    curl -X DELETE \
+      "https://smp.example.org/iso6523-actorid-upis%3A%3A0088%3A5060210000007/customproperties/countryCode" \
+      -H "Authorization: Bearer <token>"
+    ```
+  </Tab>
+</Tabs>
+
+### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Invalid property name |
+| `401` | Missing or invalid credentials |
+| `403` | Authenticated user does not own the service group |
+| `404` | Service group not found, or property not found |

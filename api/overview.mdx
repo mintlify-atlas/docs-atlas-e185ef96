@@ -31,7 +31,7 @@ Configure the public URL with:
 smp.publicurl = https://smp.example.org
 ```
 
-## Endpoints summary
+## Core SMP endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -41,12 +41,68 @@ smp.publicurl = https://smp.example.org
 | `GET` | `/{ServiceGroupId}/services/{DocumentTypeId}` | No | Get service metadata (endpoints) for a document type |
 | `PUT` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Create or update service metadata |
 | `DELETE` | `/{ServiceGroupId}/services/{DocumentTypeId}` | Yes | Delete service metadata for a document type |
+| `DELETE` | `/{ServiceGroupId}/services` | Yes | Delete all service metadata for a service group |
 | `GET` | `/businesscard/{ServiceGroupId}` | No | Get business card |
 | `PUT` | `/businesscard/{ServiceGroupId}` | Yes | Create or update business card |
 | `DELETE` | `/businesscard/{ServiceGroupId}` | Yes | Delete business card |
 | `POST` | `/businesscard/{ServiceGroupId}/push` | Yes | Push business card to Peppol Directory |
+
+## Custom properties endpoints (since v8.1.0)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/{ServiceGroupId}/customproperties` | Optional | Get all custom properties (public only if unauthenticated) |
+| `GET` | `/{ServiceGroupId}/customproperties/{PropertyName}` | Optional | Get a single custom property |
+| `PUT` | `/{ServiceGroupId}/customproperties` | Yes | Replace all custom properties |
+| `PUT` | `/{ServiceGroupId}/customproperties/{PropertyType}/{PropertyName}` | Yes | Set a single custom property |
+| `DELETE` | `/{ServiceGroupId}/customproperties` | Yes | Delete all custom properties |
+| `DELETE` | `/{ServiceGroupId}/customproperties/{PropertyName}` | Yes | Delete a single custom property |
+
+## Utility and administrative endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/complete/{ServiceGroupId}` | No | Get complete service group including all service metadata |
+| `GET` | `/list/{UserId}` | Yes | List all service groups owned by a user |
+| `GET` | `/servicegroupids/all` | Yes | List all service group IDs registered on this SMP (since v8.1.0) |
 | `GET` | `/smp-status/` | No | Health and status information (disabled by default) |
 | `GET` | `/ping/` | No | Liveness probe |
+
+## Remote query API (disabled by default)
+
+The remote query API allows external SMP lookups through this server. It is disabled by default for security.
+
+Enable with: `smp.rest.remote.queryapi.disabled = false`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/smpquery/{ServiceGroupId}` | No | Remote lookup: list document types for a participant |
+| `GET` | `/smpquery/{ServiceGroupId}/{DocumentTypeId}` | No | Remote lookup: get service metadata |
+| `GET` | `/businesscardquery/{ServiceGroupId}` | No | Remote lookup: get business card |
+
+## Exchange API (since v5.6.0)
+
+The exchange API provides bulk import/export of SMP data in XML format.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/exchange/export/all/xml/v1` | Yes | Export all data as XML |
+| `GET` | `/exchange/export/byowner/{UserId}/xml/v1` | Yes | Export all data owned by a user |
+| `GET` | `/exchange/export/specific/{ServiceGroupId}/xml/v1` | Yes | Export a single service group |
+| `GET` | `/exchange/export/outboundmigip/xml/v1` | Yes | Export outbound migrations in progress |
+| `PUT` | `/exchange/import/xml/v1/{UserId}` | Yes | Import XML data under the specified user |
+
+## Migration API (since v5.6.0)
+
+Participant migration allows transferring a service group from one SMP to another within the Peppol network.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `PUT` | `/migration/outbound/start/{ServiceGroupId}` | Yes | Start outbound migration |
+| `PUT` | `/migration/outbound/cancel/{ServiceGroupId}` | Yes | Cancel outbound migration |
+| `PUT` | `/migration/outbound/finalize/{ServiceGroupId}` | Yes | Finalize outbound migration |
+| `PUT` | `/migration/inbound/{ServiceGroupId}/{MigrationKey}` | Yes | Accept inbound migration |
+| `PUT` | `/migration/inbound` | Yes | Accept inbound migration from XML body |
 
 ## Identifier formats
 

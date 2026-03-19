@@ -95,7 +95,8 @@
             "pages": [
               "api/peppol/service-groups",
               "api/peppol/service-metadata",
-              "api/peppol/business-cards"
+              "api/peppol/business-cards",
+              "api/peppol/custom-properties"
             ]
           },
           {
