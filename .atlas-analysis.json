@@ -1,0 +1,130 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "phoss SMP",
+  "projectDescription": "A complete, CEF eDelivery-compliant Service Metadata Publisher (SMP) server supporting Peppol SMP 1.x, OASIS BDXR SMP 1.0, and OASIS BDXR SMP 2.0 specifications with management GUI and pluggable XML, SQL, and MongoDB backends.",
+  "theme": "linden",
+  "primaryColor": "#0057A8",
+  "lightColor": "#E8F0FA",
+  "darkColor": "#003D7A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "installation/prerequisites",
+              "installation/docker",
+              "installation/war-deployment",
+              "installation/building-from-source"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/backends",
+              "configuration/keystore-pki",
+              "configuration/sml-integration",
+              "configuration/directory-integration",
+              "configuration/reverse-proxy",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Backends",
+            "pages": [
+              "backends/xml",
+              "backends/sql",
+              "backends/mongodb"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/management-ui",
+              "operations/authentication",
+              "operations/monitoring",
+              "operations/migrations"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/peppol-setup",
+              "guides/bdxr-setup",
+              "guides/custom-backend",
+              "guides/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Peppol SMP 1.x",
+            "pages": [
+              "api/peppol/service-groups",
+              "api/peppol/service-metadata",
+              "api/peppol/business-cards"
+            ]
+          },
+          {
+            "group": "OASIS BDXR SMP",
+            "pages": [
+              "api/bdxr/service-groups",
+              "api/bdxr/service-metadata"
+            ]
+          },
+          {
+            "group": "Status & Health",
+            "pages": [
+              "api/status"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Supports Peppol SMP 1.x, OASIS BDXR SMP 1.0, and OASIS BDXR SMP 2.0 specifications",
+    "CEF eDelivery compliant (first SMP to achieve this certification)",
+    "Three pluggable storage backends: XML (file-based), SQL (MySQL/PostgreSQL/Oracle/DB2), and MongoDB",
+    "Built-in management GUI for administering service groups, endpoints, and business cards",
+    "Docker support with pre-built images for all three backends",
+    "SML (Service Metadata Locator) integration for automatic DNS registration",
+    "Peppol Directory integration for participant discovery",
+    "Bearer token and Basic Auth authentication for REST API",
+    "Content Security Policy (CSP) support and production security hardening",
+    "Reverse proxy support with configurable public URL"
+  ],
+  "publicApiSurface": [
+    "GET /{ServiceGroupId} — List document types for a participant",
+    "PUT /{ServiceGroupId} — Create or update a service group",
+    "DELETE /{ServiceGroupId} — Delete a service group",
+    "GET /{ServiceGroupId}/services/{DocumentTypeId} — Get service endpoints",
+    "PUT /{ServiceGroupId}/services/{DocumentTypeId} — Define AP endpoints",
+    "DELETE /{ServiceGroupId}/services/{DocumentTypeId} — Delete service metadata",
+    "GET /businesscard/{ServiceGroupId} — Get business card",
+    "PUT /businesscard/{ServiceGroupId} — Create or update business card",
+    "DELETE /businesscard/{ServiceGroupId} — Delete business card",
+    "GET /smp-status/ — Health and status JSON endpoint"
+  ]
+}
